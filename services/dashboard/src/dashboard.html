@@ -453,9 +453,9 @@
 
     <div class="controls">
       <label for="session-input">Session ID:</label>
-      <input id="session-input" type="text" placeholder="e.g. sess-0" style="width:240px" />
+      <input id="session-input" type="text" value="sess-0" placeholder="e.g. sess-0" style="width:240px" />
       <label for="time-input">From (t₁):</label>
-      <input id="time-input" type="number" value="0" style="width:100px" min="0" />
+      <input id="time-input" type="number" value="250" style="width:100px" min="0" />
       <button class="btn" id="stream-btn">▶ Stream</button>
       <button class="stop-btn" id="stop-stream-btn" style="display:none">■ Stop</button>
       <button class="btn" id="snapshot-btn" style="background:var(--siri-mid)">⏎ Snapshot</button>
@@ -465,6 +465,11 @@
         <label for="inspect-interval">s</label>
       </div>
       <span id="stream-indicator" style="display:none" class="stream-live"><span class="pulse"></span>Live</span>
+    </div>
+    <div class="presets">
+      <button type="button" class="preset-btn" data-session="sess-0">sess-0</button>
+      <button type="button" class="preset-btn" data-session="sess-1">sess-1</button>
+      <button type="button" class="preset-btn" data-session="sess-2">sess-2</button>
     </div>
 
     <div id="tree-output">
@@ -595,7 +600,7 @@
 
     function renderTimelineBar(result, prevPointCount, isRoot, globalMin, globalMax) {
       const pts = getTimelinePoints(result);
-      if (pts.length === 0) return '<span style="color:var(--text-muted);font-size:12px">No data yet</span>';
+      if (pts.length === 0) return '<span style="color:var(--text-muted);font-size:12px">No state at this t₁ — try a later time (events start at t=1)</span>';
 
       const tMin = globalMin;
       const tMax = globalMax;
@@ -872,6 +877,13 @@
     }
 
     const sessionInput = document.getElementById('session-input');
+    document.querySelectorAll('#inspect-panel .preset-btn[data-session]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        sessionInput.value = btn.dataset.session;
+        document.querySelectorAll('#inspect-panel .preset-btn[data-session]').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
     const timeInput = document.getElementById('time-input');
     const streamBtn = document.getElementById('stream-btn');
     const stopStreamBtn = document.getElementById('stop-stream-btn');
