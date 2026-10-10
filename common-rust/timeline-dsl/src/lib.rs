@@ -2,7 +2,7 @@
 mod lexer;
 mod parser;
 
-pub use parser::{parse, ParsedTimeline, ParsedAggregation, AggregationFunction, ParseError};
+pub use parser::{parse, ParseError, ParsedTimeline};
 
 #[cfg(test)]
 mod tests;

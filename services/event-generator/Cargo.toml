@@ -5,5 +5,4 @@ edition = "2021"
 description = "Generates timeline events for testing and cloud deployments"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+common-lib = { path = "../../common-rust/common-lib" }

@@ -1,112 +1,362 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
-use std::fmt::Display;
+use std::fmt::{self, Display};
 
-use crate::event_predicate::{EventColumnName, GolemEventPredicate};
-use crate::golem_event::GolemEventValue;
+use serde::{Deserialize, Serialize};
 
-/// The recursive Timeline DSL. Internal representation used for computation.
-/// At the API boundary, we use a non-recursive graph encoding (see the component code).
-#[derive(Clone, Debug)]
+use crate::event::{EventColumnName, EventValue};
+use crate::event_predicate::EventPredicate;
+
+/// How a timeline's state is compared against a constant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "golem",
+    derive(
+        golem_rust::Schema,
+        golem_rust::IntoWire,
+        golem_rust::FromWire,
+        golem_rust::WireSchema
+    )
+)]
+pub enum CompareOp {
+    EqualTo,
+    GreaterThan,
+    GreaterThanOrEqual,
+    LessThan,
+    LessThanOrEqual,
+}
+
+impl CompareOp {
+    pub fn apply(self, state: &EventValue, constant: &EventValue) -> bool {
+        match self {
+            CompareOp::EqualTo => state == constant,
+            CompareOp::GreaterThan => state > constant,
+            CompareOp::GreaterThanOrEqual => state >= constant,
+            CompareOp::LessThan => state < constant,
+            CompareOp::LessThanOrEqual => state <= constant,
+        }
+    }
+
+    /// Kebab-case name used in agent names, e.g. `equal-to`.
+    pub fn operation_name(self) -> &'static str {
+        match self {
+            CompareOp::EqualTo => "equal-to",
+            CompareOp::GreaterThan => "greater-than",
+            CompareOp::GreaterThanOrEqual => "greater-than-or-equal",
+            CompareOp::LessThan => "less-than",
+            CompareOp::LessThanOrEqual => "less-than-or-equal",
+        }
+    }
+
+    fn display_name(self) -> &'static str {
+        match self {
+            CompareOp::EqualTo => "EqualTo",
+            CompareOp::GreaterThan => "GreaterThan",
+            CompareOp::GreaterThanOrEqual => "GreaterThanOrEqual",
+            CompareOp::LessThan => "LessThan",
+            CompareOp::LessThanOrEqual => "LessThanOrEqual",
+        }
+    }
+}
+
+/// The recursive Timeline DSL expression.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "golem",
+    derive(
+        golem_rust::Schema,
+        golem_rust::IntoWire,
+        golem_rust::FromWire,
+        golem_rust::WireSchema
+    )
+)]
 pub enum TimeLineOp {
-    EqualTo(Box<TimeLineOp>, GolemEventValue),
-    GreaterThan(Box<TimeLineOp>, GolemEventValue),
-    GreaterThanOrEqual(Box<TimeLineOp>, GolemEventValue),
-    LessThan(Box<TimeLineOp>, GolemEventValue),
-    LessThanOrEqual(Box<TimeLineOp>, GolemEventValue),
-    And(Box<TimeLineOp>, Box<TimeLineOp>),
-    Or(Box<TimeLineOp>, Box<TimeLineOp>),
+    Compare {
+        op: CompareOp,
+        timeline: Box<TimeLineOp>,
+        value: EventValue,
+    },
+    And {
+        left: Box<TimeLineOp>,
+        right: Box<TimeLineOp>,
+    },
+    Or {
+        left: Box<TimeLineOp>,
+        right: Box<TimeLineOp>,
+    },
     Not(Box<TimeLineOp>),
-    TlHasExisted(GolemEventPredicate<GolemEventValue>),
-    TlHasExistedWithin(GolemEventPredicate<GolemEventValue>, u64),
+    TlHasExisted(EventPredicate),
+    TlHasExistedWithin {
+        predicate: EventPredicate,
+        within: u64,
+    },
     TlLatestEventToState(EventColumnName),
     TlDurationWhere(Box<TimeLineOp>),
     TlDurationInCurState(Box<TimeLineOp>),
 }
 
-pub fn tl_has_existed(predicate: GolemEventPredicate<GolemEventValue>) -> TimeLineOp {
-    TimeLineOp::TlHasExisted(predicate)
+/// Position of a node in pre-order depth-first traversal, starting at 1.
+/// Together with the operation name it forms the node's agent-name suffix.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct NodeNumber(pub u64);
+
+impl Display for NodeNumber {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
 }
 
-pub fn tl_has_existed_within(
-    predicate: GolemEventPredicate<GolemEventValue>,
-    duration: u64,
-) -> TimeLineOp {
-    TimeLineOp::TlHasExistedWithin(predicate, duration)
+/// A node of a timeline expression, numbered in pre-order.
+#[derive(Clone, Debug)]
+pub struct NumberedNode<'a> {
+    pub number: NodeNumber,
+    pub op: &'a TimeLineOp,
+    pub children: Vec<NodeNumber>,
 }
 
-pub fn tl_latest_event_to_state(event_col_name: EventColumnName) -> TimeLineOp {
-    TimeLineOp::TlLatestEventToState(event_col_name)
+impl NumberedNode<'_> {
+    /// The agent-name suffix of this node, e.g. `has-existed-4`.
+    pub fn suffix(&self) -> String {
+        format!("{}-{}", self.op.operation_name(), self.number)
+    }
 }
 
-pub fn tl_duration_where(op: TimeLineOp) -> TimeLineOp {
-    TimeLineOp::TlDurationWhere(Box::new(op))
+impl std::ops::Not for TimeLineOp {
+    type Output = TimeLineOp;
+
+    fn not(self) -> TimeLineOp {
+        TimeLineOp::Not(Box::new(self))
+    }
 }
 
-pub fn tl_duration_in_cur_state(op: TimeLineOp) -> TimeLineOp {
-    TimeLineOp::TlDurationInCurState(Box::new(op))
-}
+impl TimeLineOp {
+    pub fn compare(op: CompareOp, timeline: TimeLineOp, value: EventValue) -> Self {
+        TimeLineOp::Compare {
+            op,
+            timeline: Box::new(timeline),
+            value,
+        }
+    }
 
-pub fn tl_equal_to(op: TimeLineOp, value: GolemEventValue) -> TimeLineOp {
-    TimeLineOp::EqualTo(Box::new(op), value)
-}
+    pub fn and(left: TimeLineOp, right: TimeLineOp) -> Self {
+        TimeLineOp::And {
+            left: Box::new(left),
+            right: Box::new(right),
+        }
+    }
 
-pub fn tl_greater_than(op: TimeLineOp, value: GolemEventValue) -> TimeLineOp {
-    TimeLineOp::GreaterThan(Box::new(op), value)
-}
+    pub fn or(left: TimeLineOp, right: TimeLineOp) -> Self {
+        TimeLineOp::Or {
+            left: Box::new(left),
+            right: Box::new(right),
+        }
+    }
 
-pub fn tl_greater_than_or_equal(op: TimeLineOp, value: GolemEventValue) -> TimeLineOp {
-    TimeLineOp::GreaterThanOrEqual(Box::new(op), value)
-}
+    pub fn duration_where(timeline: TimeLineOp) -> Self {
+        TimeLineOp::TlDurationWhere(Box::new(timeline))
+    }
 
-pub fn tl_less_than(op: TimeLineOp, value: GolemEventValue) -> TimeLineOp {
-    TimeLineOp::LessThan(Box::new(op), value)
-}
+    pub fn duration_in_cur_state(timeline: TimeLineOp) -> Self {
+        TimeLineOp::TlDurationInCurState(Box::new(timeline))
+    }
 
-pub fn tl_less_than_or_equal(op: TimeLineOp, value: GolemEventValue) -> TimeLineOp {
-    TimeLineOp::LessThanOrEqual(Box::new(op), value)
-}
+    /// Kebab-case operation name used in agent names.
+    pub fn operation_name(&self) -> &'static str {
+        match self {
+            TimeLineOp::Compare { op, .. } => op.operation_name(),
+            TimeLineOp::And { .. } => "and",
+            TimeLineOp::Or { .. } => "or",
+            TimeLineOp::Not(_) => "not",
+            TimeLineOp::TlHasExisted(_) => "has-existed",
+            TimeLineOp::TlHasExistedWithin { .. } => "has-existed-within",
+            TimeLineOp::TlLatestEventToState(_) => "latest-event-to-state",
+            TimeLineOp::TlDurationWhere(_) => "duration-where",
+            TimeLineOp::TlDurationInCurState(_) => "duration-in-cur-state",
+        }
+    }
 
-pub fn tl_and(left: TimeLineOp, right: TimeLineOp) -> TimeLineOp {
-    TimeLineOp::And(Box::new(left), Box::new(right))
-}
+    pub fn children(&self) -> Vec<&TimeLineOp> {
+        match self {
+            TimeLineOp::Compare { timeline, .. }
+            | TimeLineOp::Not(timeline)
+            | TimeLineOp::TlDurationWhere(timeline)
+            | TimeLineOp::TlDurationInCurState(timeline) => vec![timeline],
+            TimeLineOp::And { left, right } | TimeLineOp::Or { left, right } => {
+                vec![left, right]
+            }
+            TimeLineOp::TlHasExisted(_)
+            | TimeLineOp::TlHasExistedWithin { .. }
+            | TimeLineOp::TlLatestEventToState(_) => vec![],
+        }
+    }
 
-pub fn tl_or(left: TimeLineOp, right: TimeLineOp) -> TimeLineOp {
-    TimeLineOp::Or(Box::new(left), Box::new(right))
-}
+    pub fn is_leaf(&self) -> bool {
+        self.children().is_empty()
+    }
 
-pub fn tl_not(op: TimeLineOp) -> TimeLineOp {
-    TimeLineOp::Not(Box::new(op))
+    /// Event columns a leaf reads. Empty for derived nodes.
+    pub fn leaf_columns(&self) -> Vec<&EventColumnName> {
+        match self {
+            TimeLineOp::TlHasExisted(predicate)
+            | TimeLineOp::TlHasExistedWithin { predicate, .. } => predicate.columns(),
+            TimeLineOp::TlLatestEventToState(column) => vec![column],
+            _ => vec![],
+        }
+    }
+
+    /// All nodes in pre-order depth-first order, numbered from 1.
+    /// The root is always `NodeNumber(1)`.
+    pub fn numbered_nodes(&self) -> Vec<NumberedNode<'_>> {
+        let mut nodes = Vec::new();
+        self.number_into(&mut nodes);
+        nodes
+    }
+
+    fn number_into<'a>(&'a self, nodes: &mut Vec<NumberedNode<'a>>) -> NodeNumber {
+        let number = NodeNumber(nodes.len() as u64 + 1);
+        let position = nodes.len();
+        nodes.push(NumberedNode {
+            number,
+            op: self,
+            children: Vec::new(),
+        });
+        let children: Vec<NodeNumber> = self
+            .children()
+            .into_iter()
+            .map(|child| child.number_into(nodes))
+            .collect();
+        if let Some(node) = nodes.get_mut(position) {
+            node.children = children;
+        }
+        number
+    }
 }
 
 impl Display for TimeLineOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fn text_of(v: &GolemEventValue) -> String {
-            match v {
-                GolemEventValue::StringValue(s) => s.to_string(),
-                GolemEventValue::IntValue(i) => i.to_string(),
-                GolemEventValue::BoolValue(b) => b.to_string(),
-                GolemEventValue::FloatValue(fl) => fl.to_string(),
-            }
-        }
-
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TimeLineOp::EqualTo(tl, v) => write!(f, "EqualTo({}, {})", tl, text_of(v)),
-            TimeLineOp::GreaterThan(tl, v) => write!(f, "GreaterThan({}, {})", tl, text_of(v)),
-            TimeLineOp::GreaterThanOrEqual(tl, v) => {
-                write!(f, "GreaterThanOrEqual({}, {})", tl, text_of(v))
+            TimeLineOp::Compare {
+                op,
+                timeline,
+                value,
+            } => write!(f, "{}({timeline}, {value})", op.display_name()),
+            TimeLineOp::And { left, right } => write!(f, "And({left}, {right})"),
+            TimeLineOp::Or { left, right } => write!(f, "Or({left}, {right})"),
+            TimeLineOp::Not(timeline) => write!(f, "Not({timeline})"),
+            TimeLineOp::TlHasExisted(predicate) => write!(f, "TlHasExisted({predicate})"),
+            TimeLineOp::TlHasExistedWithin { predicate, within } => {
+                write!(f, "TlHasExistedWithin({predicate}, {within})")
             }
-            TimeLineOp::LessThan(tl, v) => write!(f, "LessThan({}, {})", tl, text_of(v)),
-            TimeLineOp::LessThanOrEqual(tl, v) => {
-                write!(f, "LessThanOrEqual({}, {})", tl, text_of(v))
+            TimeLineOp::TlLatestEventToState(column) => {
+                write!(f, "TlLatestEventToState({column})")
             }
-            TimeLineOp::And(l, r) => write!(f, "And({}, {})", l, r),
-            TimeLineOp::Or(l, r) => write!(f, "Or({}, {})", l, r),
-            TimeLineOp::Not(tl) => write!(f, "Not({})", tl),
-            TimeLineOp::TlHasExisted(p) => write!(f, "TlHasExisted({})", p),
-            TimeLineOp::TlHasExistedWithin(p, t) => write!(f, "TlHasExistedWithin({}, {})", p, t),
-            TimeLineOp::TlLatestEventToState(c) => write!(f, "TlLatestEventToState({})", c),
-            TimeLineOp::TlDurationWhere(tl) => write!(f, "TlDurationWhere({})", tl),
-            TimeLineOp::TlDurationInCurState(tl) => write!(f, "TlDurationInCurState({})", tl),
+            TimeLineOp::TlDurationWhere(timeline) => write!(f, "TlDurationWhere({timeline})"),
+            TimeLineOp::TlDurationInCurState(timeline) => {
+                write!(f, "TlDurationInCurState({timeline})")
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn play() -> EventPredicate {
+        EventPredicate::equals("playerStateChange", EventValue::StringValue("play".into()))
+    }
+
+    fn seek() -> EventPredicate {
+        EventPredicate::equals("playerStateChange", EventValue::StringValue("seek".into()))
+    }
+
+    fn cirr() -> TimeLineOp {
+        TimeLineOp::duration_where(TimeLineOp::and(
+            TimeLineOp::and(
+                TimeLineOp::TlHasExisted(play()),
+                !(TimeLineOp::TlHasExistedWithin {
+                    predicate: seek(),
+                    within: 5,
+                }),
+            ),
+            TimeLineOp::compare(
+                CompareOp::EqualTo,
+                TimeLineOp::TlLatestEventToState(EventColumnName::new("playerStateChange")),
+                EventValue::StringValue("buffer".into()),
+            ),
+        ))
+    }
+
+    #[test]
+    fn cirr_numbering_matches_documented_agent_names() {
+        let suffixes: Vec<String> = cirr().numbered_nodes().iter().map(|n| n.suffix()).collect();
+        assert_eq!(
+            suffixes,
+            vec![
+                "duration-where-1",
+                "and-2",
+                "and-3",
+                "has-existed-4",
+                "not-5",
+                "has-existed-within-6",
+                "equal-to-7",
+                "latest-event-to-state-8",
+            ]
+        );
+    }
+
+    #[test]
+    fn numbered_nodes_record_children() {
+        let op = cirr();
+        let nodes = op.numbered_nodes();
+        let children: Vec<Vec<u64>> = nodes
+            .iter()
+            .map(|n| n.children.iter().map(|c| c.0).collect())
+            .collect();
+        assert_eq!(
+            children,
+            vec![
+                vec![2],
+                vec![3, 7],
+                vec![4, 5],
+                vec![],
+                vec![6],
+                vec![],
+                vec![8],
+                vec![]
+            ]
+        );
+    }
+
+    #[test]
+    fn leaf_columns() {
+        let op = TimeLineOp::TlHasExisted(play().and(EventPredicate::equals(
+            "cdn",
+            EventValue::StringValue("x".into()),
+        )));
+        let columns: Vec<&str> = op.leaf_columns().iter().map(|c| c.as_str()).collect();
+        assert_eq!(columns, vec!["playerStateChange", "cdn"]);
+        assert!((!op).leaf_columns().is_empty());
+    }
+
+    #[test]
+    fn compare_ops() {
+        let one = EventValue::IntValue(1);
+        let two = EventValue::IntValue(2);
+        assert!(CompareOp::EqualTo.apply(&one, &one));
+        assert!(CompareOp::GreaterThan.apply(&two, &one));
+        assert!(CompareOp::GreaterThanOrEqual.apply(&one, &one));
+        assert!(CompareOp::LessThan.apply(&one, &two));
+        assert!(CompareOp::LessThanOrEqual.apply(&two, &two));
+        assert!(!CompareOp::LessThan.apply(&two, &one));
+    }
+
+    #[test]
+    fn display() {
+        assert_eq!(
+            cirr().to_string(),
+            "TlDurationWhere(And(And(TlHasExisted(playerStateChange == play), \
+             Not(TlHasExistedWithin(playerStateChange == seek, 5))), \
+             EqualTo(TlLatestEventToState(playerStateChange), buffer)))"
+        );
     }
 }

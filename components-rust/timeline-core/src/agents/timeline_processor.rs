@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 use golem_rust::{agent_definition, agent_implementation};
 
-use common_lib::{GolemEventValue, StateDynamicsTimeLine};
+use common_lib::{AggregationConfig, EventValue, StateDynamicsTimeLine, StatePoint, TimelineError};
 
 use crate::agents::helpers::*;
 use crate::types::*;
@@ -9,103 +9,81 @@ use crate::types::*;
 /// Derived node agent. Receives state changes from children, recomputes its own
 /// state, and pushes upward. The root node (no parent) pushes to the Aggregator.
 ///
-/// CIRR example — the full derived tree for session "sess-42":
+/// CIRR example — the derived nodes for session `sess-42`:
 ///   ```text
-///   duration_where(                                         ← node-8 (root, DurationWhere)
-///     has_existed(playerStateChange == "play")               ← node-1 (leaf)
-///     && !has_existed_within(playerStateChange == "seek", 5) ← node-3 (leaf), node-4 (Not)
-///     && latest_event_to_state(playerStateChange) == "buffer" ← node-5 (leaf), node-6 (EqualTo)
-///   )                                       node-2 (And: node-1 & node-4)
-///                                           node-7 (And: node-2 & node-6)
+///   sess-42-duration-where-1   DurationWhere(and-2)          ← root
+///   sess-42-and-2              And(and-3, equal-to-7)
+///   sess-42-and-3              And(has-existed-4, not-5)
+///   sess-42-not-5              Not(has-existed-within-6)
+///   sess-42-equal-to-7         EqualTo(latest-event-to-state-8, "buffer")
 ///   ```
 ///
-/// Push cascade when user starts buffering at time 200 (cdn = "akamai"):
-///   1. Leaf node-5 pushes ("buffer", "akamai") → node-6 (EqualTo "buffer") → computes `true`
-///   2. node-6 pushes (true, "akamai") → node-7 (And) → both children true → computes `true`
-///   3. node-7 pushes (true, "akamai") → node-8 (DurationWhere) → starts counting
-///   4. node-8 is root with aggregation config → calls `Aggregator::get("aggregator-cdn-akamai").on_delta(0.0)`
+/// Push cascade when the user starts buffering at time 200 (cdn = "akamai"):
+///   1. latest-event-to-state-8 pushes "buffer" → equal-to-7 computes `true`
+///   2. equal-to-7 pushes `true` → and-2 → both inputs true → `true`
+///   3. and-2 pushes `true` → duration-where-1 starts counting
+///   4. duration-where-1 is the root with aggregation → reports to `aggregator-cdn-akamai`
 #[agent_definition]
 pub trait TimelineProcessor {
     fn new(name: String) -> Self;
 
-    /// Tell this node what to compute and which children to depend on.
-    ///
-    /// CIRR example:
-    ///   - node-2: `initialize_derived(And, [node-1, node-4])` — AND of has_existed and Not(has_existed_within)
-    ///   - node-4: `initialize_derived(Negation, [node-3])` — NOT of has_existed_within
-    ///   - node-6: `initialize_derived(Comparison(EqualTo, "buffer"), [node-5])` — latest state == "buffer"
-    ///   - node-7: `initialize_derived(And, [node-2, node-6])` — all three conditions combined
-    ///   - node-8: `initialize_derived(DurationWhere, [node-7])` — cumulative time where all true
-    fn initialize_derived(&mut self, operation: DerivedOperation, children: Vec<ChildAgentRef>);
+    /// Tell this node what to compute.
+    fn initialize_derived(&mut self, operation: DerivedOperation);
 
     /// Wire this node to its parent. Not set on the root — the root pushes to the Aggregator.
-    ///
-    /// CIRR example:
-    ///   - node-2 (And) → `set_parent("node-7", child_index: 0)` — feeds into the outer And
-    ///   - node-7 (And) → `set_parent("node-8", child_index: 0)` — feeds into DurationWhere
-    ///   - node-8 (root) → no set_parent call — it has set_aggregation instead
     fn set_parent(&mut self, parent: ParentRef);
 
     /// Called only on the root node. Tells it which event column determines
-    /// aggregator routing and which functions (count, sum, avg...) to compute.
-    /// The root does not pre-create the Aggregator — it lazily creates it on first delta.
-    ///
-    /// CIRR example:
-    ///   `node-8.set_aggregation(AggregationConfig { group_by_column: "cdn", aggregations: [Count, Sum, Avg] })`
-    ///   Later, when node-8 receives group_by_value="akamai" from the cascade:
-    ///     → constructs aggregator name "aggregator-cdn-akamai"
-    ///     → calls `Aggregator::get("aggregator-cdn-akamai").on_delta(delta)`
+    /// aggregator routing and which functions to compute. The aggregator is
+    /// created lazily on the first non-zero delta.
     fn set_aggregation(&mut self, config: AggregationConfig);
 
     /// Receive a state change from a child. `group_by_value` is the aggregation
-    /// column value (e.g., "akamai") extracted by the leaf and propagated through
+    /// column value (e.g. "akamai") extracted by the leaf and propagated through
     /// every node in the cascade.
-    ///
-    /// CIRR example — user starts playing at time 100 on CDN "akamai":
-    ///   Leaf node-1 (has_existed "play") flips to `true` and pushes to node-2:
-    ///     `node-2.on_child_state_changed(0, 100, BoolValue(true), Some(StringValue("akamai")))`
-    ///   node-2 (And) recomputes: left=true, right=already true → result=true
-    ///   node-2 pushes to node-7, which pushes to node-8, each passing "akamai" along.
-    async fn on_child_state_changed(
-        &mut self,
-        child_index: u32,
-        time: u64,
-        value: EventValue,
-        group_by_value: Option<EventValue>,
-    );
+    async fn on_child_state_changed(&mut self, change: ChildStateChange);
 
     /// Point-in-time query on precomputed state.
-    ///
-    /// CIRR example:
-    ///   `node-8.get_derived_result(250)` → `IntValue(50)` — 50 seconds of connection-induced buffering by time 250
-    fn get_derived_result(&self, t1: u64) -> Result<TimelineResult, String>;
+    fn get_derived_result(&self, t1: u64) -> Result<Option<StatePoint>, TimelineError>;
+}
+
+/// Running state of a duration node.
+#[derive(Clone, Copy, Debug)]
+enum DurationState {
+    /// Counting up since `since`, starting from `base`.
+    Climbing { base: u64, since: u64 },
+    /// Holding at `value`.
+    Flat { value: u64 },
+}
+
+impl DurationState {
+    fn value_at(self, t: u64) -> u64 {
+        match self {
+            DurationState::Climbing { base, since } => base + t.saturating_sub(since),
+            DurationState::Flat { value } => value,
+        }
+    }
 }
 
 struct TimelineProcessorImpl {
-    _name: String,
     operation: Option<DerivedOperation>,
-    children: Vec<ChildAgentRef>,
     parent: Option<ParentRef>,
     aggregation: Option<AggregationConfig>,
-    aggregator_agent: Option<String>,
-    last_aggregated_value: Option<f64>,
-    left_child_state: StateDynamicsTimeLine<GolemEventValue>,
-    right_child_state: StateDynamicsTimeLine<GolemEventValue>,
-    result_state: StateDynamicsTimeLine<GolemEventValue>,
+    aggregator_link: AggregatorLink,
+    left_child_state: StateDynamicsTimeLine<EventValue>,
+    right_child_state: StateDynamicsTimeLine<EventValue>,
+    result_state: StateDynamicsTimeLine<EventValue>,
     duration_state: Option<DurationState>,
 }
 
 #[agent_implementation]
 impl TimelineProcessor for TimelineProcessorImpl {
-    fn new(name: String) -> Self {
+    fn new(_name: String) -> Self {
         Self {
-            _name: name,
             operation: None,
-            children: Vec::new(),
             parent: None,
             aggregation: None,
-            aggregator_agent: None,
-            last_aggregated_value: None,
+            aggregator_link: AggregatorLink::default(),
             left_child_state: StateDynamicsTimeLine::default(),
             right_child_state: StateDynamicsTimeLine::default(),
             result_state: StateDynamicsTimeLine::default(),
@@ -113,9 +91,8 @@ impl TimelineProcessor for TimelineProcessorImpl {
         }
     }
 
-    fn initialize_derived(&mut self, operation: DerivedOperation, children: Vec<ChildAgentRef>) {
+    fn initialize_derived(&mut self, operation: DerivedOperation) {
         self.operation = Some(operation);
-        self.children = children;
     }
 
     fn set_parent(&mut self, parent: ParentRef) {
@@ -126,244 +103,130 @@ impl TimelineProcessor for TimelineProcessorImpl {
         self.aggregation = Some(config);
     }
 
-    async fn on_child_state_changed(
-        &mut self,
-        child_index: u32,
-        time: u64,
-        value: EventValue,
-        group_by_value: Option<EventValue>,
-    ) {
-        let op = match self.operation.as_ref() {
-            Some(op) => op.clone(),
-            None => return,
+    async fn on_child_state_changed(&mut self, change: ChildStateChange) {
+        let Some(operation) = self.operation.clone() else {
+            return;
+        };
+        let time = change.time;
+        let Some(output) = self.recompute(&operation, change.slot, time, change.value) else {
+            return;
         };
 
-        let domain_value = value.to_domain();
+        notify_parent(
+            self.parent.as_ref(),
+            time,
+            output.clone(),
+            change.group_by_value.as_ref(),
+        )
+        .await;
+        notify_aggregator(
+            self.aggregation.as_ref(),
+            &mut self.aggregator_link,
+            &output,
+            change.group_by_value.as_ref(),
+        )
+        .await;
+    }
 
-        match &op {
-            DerivedOperation::Comparison(compare_op, constant) => {
-                let constant = constant.to_domain();
-                let result = match compare_op {
-                    CompareOp::EqualTo => domain_value == constant,
-                    CompareOp::GreaterThan => domain_value > constant,
-                    CompareOp::GreaterThanOrEqual => domain_value >= constant,
-                    CompareOp::LessThan => domain_value < constant,
-                    CompareOp::LessThanOrEqual => domain_value <= constant,
-                };
-                let prev = self
-                    .result_state
-                    .get_state_at(time)
-                    .map(|p| p.value.clone());
-                let new_val = GolemEventValue::BoolValue(result);
-                if prev.as_ref() != Some(&new_val) {
-                    self.result_state.add_state_dynamic_info(time, new_val);
-                    let event_val = EventValue::BoolValue(result);
-                    notify_parent(&self.parent, time, event_val.clone(), &group_by_value).await;
-                    notify_aggregator(
-                        &self.aggregation,
-                        &mut self.aggregator_agent,
-                        &mut self.last_aggregated_value,
-                        time,
-                        &event_val,
-                        &group_by_value,
-                    )
-                    .await;
-                }
+    fn get_derived_result(&self, t1: u64) -> Result<Option<StatePoint>, TimelineError> {
+        if self.operation.is_none() {
+            return Err(TimelineError::NotInitialized);
+        }
+        if let Some(duration) = self.duration_state {
+            return Ok(Some(StatePoint {
+                t1,
+                t2: None,
+                value: duration_value(duration.value_at(t1)),
+            }));
+        }
+        Ok(to_state_point(
+            self.result_state.get_state_at(t1),
+            EventValue::clone,
+        ))
+    }
+}
+
+fn duration_value(duration: u64) -> EventValue {
+    EventValue::IntValue(i64::try_from(duration).unwrap_or(i64::MAX))
+}
+
+impl TimelineProcessorImpl {
+    /// Updates this node's state for a child change. Returns the value to push
+    /// upward, or `None` if nothing observable changed.
+    fn recompute(
+        &mut self,
+        operation: &DerivedOperation,
+        slot: ChildSlot,
+        time: u64,
+        value: EventValue,
+    ) -> Option<EventValue> {
+        match operation {
+            DerivedOperation::Compare {
+                op,
+                value: constant,
+            } => self.record_if_changed(time, EventValue::BoolValue(op.apply(&value, constant))),
+            DerivedOperation::Not => {
+                let b = value.as_bool()?;
+                self.record_if_changed(time, EventValue::BoolValue(!b))
             }
-
-            DerivedOperation::Negation => {
-                if let Some(b) = domain_value.get_bool() {
-                    let negated = !b;
-                    let prev = self
-                        .result_state
-                        .get_state_at(time)
-                        .map(|p| p.value.clone());
-                    let new_val = GolemEventValue::BoolValue(negated);
-                    if prev.as_ref() != Some(&new_val) {
-                        self.result_state.add_state_dynamic_info(time, new_val);
-                        let event_val = EventValue::BoolValue(negated);
-                        notify_parent(&self.parent, time, event_val.clone(), &group_by_value)
-                            .await;
-                        notify_aggregator(
-                            &self.aggregation,
-                            &mut self.aggregator_agent,
-                            &mut self.last_aggregated_value,
-                            time,
-                            &event_val,
-                            &group_by_value,
-                        )
-                        .await;
-                    }
-                }
-            }
-
-            DerivedOperation::And => {
-                if child_index == 0 {
-                    self.left_child_state
-                        .add_state_dynamic_info(time, domain_value);
-                } else {
-                    self.right_child_state
-                        .add_state_dynamic_info(time, domain_value);
-                }
-                let left_val = self
-                    .left_child_state
-                    .get_state_at(time + 1)
-                    .and_then(|p| p.value.get_bool());
-                let right_val = self
-                    .right_child_state
-                    .get_state_at(time + 1)
-                    .and_then(|p| p.value.get_bool());
-                if let (Some(l), Some(r)) = (left_val, right_val) {
-                    let result = l && r;
-                    let prev = self
-                        .result_state
-                        .get_state_at(time)
-                        .map(|p| p.value.clone());
-                    let new_val = GolemEventValue::BoolValue(result);
-                    if prev.as_ref() != Some(&new_val) {
-                        self.result_state.add_state_dynamic_info(time, new_val);
-                        let event_val = EventValue::BoolValue(result);
-                        notify_parent(&self.parent, time, event_val.clone(), &group_by_value)
-                            .await;
-                        notify_aggregator(
-                            &self.aggregation,
-                            &mut self.aggregator_agent,
-                            &mut self.last_aggregated_value,
-                            time,
-                            &event_val,
-                            &group_by_value,
-                        )
-                        .await;
-                    }
-                }
-            }
-
-            DerivedOperation::Or => {
-                if child_index == 0 {
-                    self.left_child_state
-                        .add_state_dynamic_info(time, domain_value);
-                } else {
-                    self.right_child_state
-                        .add_state_dynamic_info(time, domain_value);
-                }
-                let left_val = self
-                    .left_child_state
-                    .get_state_at(time + 1)
-                    .and_then(|p| p.value.get_bool());
-                let right_val = self
-                    .right_child_state
-                    .get_state_at(time + 1)
-                    .and_then(|p| p.value.get_bool());
-                if let (Some(l), Some(r)) = (left_val, right_val) {
-                    let result = l || r;
-                    let prev = self
-                        .result_state
-                        .get_state_at(time)
-                        .map(|p| p.value.clone());
-                    let new_val = GolemEventValue::BoolValue(result);
-                    if prev.as_ref() != Some(&new_val) {
-                        self.result_state.add_state_dynamic_info(time, new_val);
-                        let event_val = EventValue::BoolValue(result);
-                        notify_parent(&self.parent, time, event_val.clone(), &group_by_value)
-                            .await;
-                        notify_aggregator(
-                            &self.aggregation,
-                            &mut self.aggregator_agent,
-                            &mut self.last_aggregated_value,
-                            time,
-                            &event_val,
-                            &group_by_value,
-                        )
-                        .await;
-                    }
-                }
-            }
-
+            DerivedOperation::And => self.combine(slot, time, value, |l, r| l && r),
+            DerivedOperation::Or => self.combine(slot, time, value, |l, r| l || r),
             DerivedOperation::DurationWhere => {
-                if let Some(b) = domain_value.get_bool() {
-                    let current_count = match &self.duration_state {
-                        Some(DurationState::Climbing { base, since }) => base + (time - since),
-                        Some(DurationState::Flat { value }) => *value,
-                        None => 0,
-                    };
-
-                    if b {
-                        self.duration_state = Some(DurationState::Climbing {
-                            base: current_count,
-                            since: time,
-                        });
-                    } else {
-                        self.duration_state = Some(DurationState::Flat {
-                            value: current_count,
-                        });
+                let b = value.as_bool()?;
+                let current = self.duration_state.map_or(0, |d| d.value_at(time));
+                self.duration_state = Some(if b {
+                    DurationState::Climbing {
+                        base: current,
+                        since: time,
                     }
-
-                    let result_value = GolemEventValue::IntValue(current_count as i64);
-                    self.result_state
-                        .add_state_dynamic_info(time, result_value.clone());
-                    let event_val = EventValue::IntValue(current_count as i64);
-                    notify_parent(&self.parent, time, event_val.clone(), &group_by_value).await;
-                    notify_aggregator(
-                        &self.aggregation,
-                        &mut self.aggregator_agent,
-                        &mut self.last_aggregated_value,
-                        time,
-                        &event_val,
-                        &group_by_value,
-                    )
-                    .await;
-                }
+                } else {
+                    DurationState::Flat { value: current }
+                });
+                Some(self.record(time, duration_value(current)))
             }
-
             DerivedOperation::DurationInCurState => {
                 self.duration_state = Some(DurationState::Climbing {
                     base: 0,
                     since: time,
                 });
-                let result_value = GolemEventValue::IntValue(0);
-                self.result_state.add_state_dynamic_info(time, result_value);
-                let event_val = EventValue::IntValue(0);
-                notify_parent(&self.parent, time, event_val.clone(), &group_by_value).await;
-                notify_aggregator(
-                    &self.aggregation,
-                    &mut self.aggregator_agent,
-                    &mut self.last_aggregated_value,
-                    time,
-                    &event_val,
-                    &group_by_value,
-                )
-                .await;
+                Some(self.record(time, duration_value(0)))
             }
         }
     }
 
-    fn get_derived_result(&self, t1: u64) -> Result<TimelineResult, String> {
-        let _op = self.operation.as_ref().ok_or("Not initialized")?;
-
-        if let Some(ref dur) = self.duration_state {
-            let value = match dur {
-                DurationState::Climbing { base, since } => {
-                    if t1 >= *since {
-                        base + (t1 - since)
-                    } else {
-                        *base
-                    }
-                }
-                DurationState::Flat { value } => *value,
-            };
-            return Ok(TimelineResult {
-                results: vec![TimelineResultPoint {
-                    t1,
-                    t2: None,
-                    value: EventValue::IntValue(value as i64),
-                }],
-            });
+    fn combine(
+        &mut self,
+        slot: ChildSlot,
+        time: u64,
+        value: EventValue,
+        f: impl Fn(bool, bool) -> bool,
+    ) -> Option<EventValue> {
+        match slot {
+            ChildSlot::Left => self.left_child_state.add_state_dynamic_info(time, value),
+            ChildSlot::Right => self.right_child_state.add_state_dynamic_info(time, value),
         }
-
-        Ok(state_to_result(
-            self.result_state
-                .get_state_at(t1)
-                .map(|s| (s.t1, s.t2, EventValue::from_domain(&s.value))),
-        ))
+        let left = bool_after(&self.left_child_state, time)?;
+        let right = bool_after(&self.right_child_state, time)?;
+        self.record_if_changed(time, EventValue::BoolValue(f(left, right)))
     }
+
+    fn record_if_changed(&mut self, time: u64, value: EventValue) -> Option<EventValue> {
+        let previous = self.result_state.get_state_at(time).map(|p| &p.value);
+        if previous == Some(&value) {
+            None
+        } else {
+            Some(self.record(time, value))
+        }
+    }
+
+    fn record(&mut self, time: u64, value: EventValue) -> EventValue {
+        self.result_state
+            .add_state_dynamic_info(time, value.clone());
+        value
+    }
+}
+
+/// The boolean state in effect just after `time`, i.e. including a change at `time`.
+fn bool_after(state: &StateDynamicsTimeLine<EventValue>, time: u64) -> Option<bool> {
+    state.get_state_at(time + 1).and_then(|p| p.value.as_bool())
 }

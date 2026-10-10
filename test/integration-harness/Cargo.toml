@@ -5,12 +5,11 @@ edition = "2021"
 description = "Integration test harness: orchestrates Golem, event generation, and assertion"
 
 [dependencies]
-serde_json = "1"
+common-lib = { path = "../../common-rust/common-lib" }
+timeline-client = { path = "../../common-rust/timeline-client" }
 
 [dev-dependencies]
 event-generator = { path = "../../services/event-generator" }
 kafka-producer = { path = "../../services/kafka-producer" }
 kafka-consumer-feeder = { path = "../../services/kafka-consumer-feeder" }
-rdkafka = { version = "0.36", features = ["cmake-build"] }
 tokio = { version = "1", features = ["full"] }
-serde = { version = "1", features = ["derive"] }

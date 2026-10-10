@@ -1,241 +1,227 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
-//! Feeder manager that spawns per-metric Kafka consumer tasks to feed events
-//! to Golem agents via `golem agent invoke`.
+//! Spawns one Kafka consumer task per registered metric. Each task initializes
+//! the metric's timeline for every new session it sees and routes events to the
+//! leaves that read the event's columns.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use common_lib::{AgentName, AggregationConfig, Event, EventColumnName, SessionId, TimeLineOp};
 use rdkafka::consumer::{Consumer, StreamConsumer};
-use rdkafka::ClientConfig;
-use rdkafka::Message;
+use rdkafka::{ClientConfig, Message};
+use timeline_client::TimelineClient;
 
-use crate::registry::RegisteredMetric;
-use crate::wave;
+use crate::registry::{AgentSuffix, MetricName, Registration};
 
 /// Tracks which metrics have active feeder tasks.
 #[derive(Clone)]
 pub struct FeederManager {
     kafka_broker: String,
     kafka_topic: String,
-    active_metrics: Arc<Mutex<HashSet<String>>>,
+    client: TimelineClient,
+    active_metrics: Arc<Mutex<HashSet<MetricName>>>,
+}
+
+/// Event column → suffixes of the leaves that read it.
+type Routes = HashMap<EventColumnName, Vec<AgentSuffix>>;
+
+/// Everything one feeder task needs.
+struct MetricFeed {
+    metric: MetricName,
+    timeline: TimeLineOp,
+    aggregation: Option<AggregationConfig>,
+    routes: Routes,
 }
 
 impl FeederManager {
-    pub fn new(kafka_broker: String, kafka_topic: String) -> Self {
+    pub fn new(kafka_broker: String, kafka_topic: String, client: TimelineClient) -> Self {
         Self {
             kafka_broker,
             kafka_topic,
+            client,
             active_metrics: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
-    /// Start a background feeder task for the given metric.
-    ///
-    /// If a feeder is already running for this metric name, returns immediately.
-    /// Otherwise, spawns a tokio task that consumes from Kafka and routes events
-    /// to the appropriate Golem agents.
-    pub fn start_feeder(&self, metric: &RegisteredMetric, graph_wave: String, agg_wave: String) {
-        let metric_name = metric.name.0.clone();
-
-        {
-            let mut active = match self.active_metrics.lock() {
-                Ok(guard) => guard,
-                Err(_) => return,
-            };
-            if active.contains(&metric_name) {
-                return;
+    /// Start a background feeder task for the metric, unless one is running.
+    pub fn start_feeder(&self, registration: &Registration) {
+        let metric = registration.metric.name.clone();
+        match self.active_metrics.lock() {
+            Ok(mut active) => {
+                if !active.insert(metric.clone()) {
+                    return;
+                }
             }
-            active.insert(metric_name.clone());
+            Err(_) => return,
         }
 
-        // Build routing table: column name → list of leaf suffixes
-        let mut routing: HashMap<String, Vec<String>> = HashMap::new();
-        for leaf in &metric.leaves {
-            for col in &leaf.event_columns {
-                routing
-                    .entry(col.0.clone())
-                    .or_default()
-                    .push(leaf.agent_suffix.0.clone());
-            }
-        }
-
-        let kafka_broker = self.kafka_broker.clone();
-        let kafka_topic = self.kafka_topic.clone();
-
+        let feed = MetricFeed {
+            metric,
+            timeline: registration.timeline.clone(),
+            aggregation: registration.aggregation.clone(),
+            routes: registration.metric.routing_table.routes.clone(),
+        };
+        let manager = self.clone();
         tokio::spawn(async move {
-            if let Err(e) =
-                run_feeder_loop(&kafka_broker, &kafka_topic, &metric_name, routing, &graph_wave, &agg_wave).await
-            {
-                eprintln!("[feeder:{}] error: {}", metric_name, e);
+            if let Err(e) = manager.run(&feed).await {
+                eprintln!("[feeder:{}] error: {e}", feed.metric.0);
             }
         });
     }
-}
 
-/// Run the Kafka consumer loop for a single metric.
-async fn run_feeder_loop(
-    kafka_broker: &str,
-    kafka_topic: &str,
-    metric_name: &str,
-    routing: HashMap<String, Vec<String>>,
-    graph_wave: &str,
-    agg_wave: &str,
-) -> Result<(), String> {
-    let group_id = format!(
-        "dashboard-feeder-{}-{}",
-        metric_name,
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+    async fn run(&self, feed: &MetricFeed) -> Result<(), String> {
+        let started = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
             .map(|d| d.as_millis())
-            .unwrap_or(0)
-    );
+            .unwrap_or_default();
+        let group_id = format!("dashboard-feeder-{}-{started}", feed.metric.0);
 
-    let consumer: StreamConsumer = ClientConfig::new()
-        .set("bootstrap.servers", kafka_broker)
-        .set("group.id", &group_id)
-        .set("auto.offset.reset", "earliest")
-        .set("enable.auto.commit", "true")
-        .create()
-        .map_err(|e| e.to_string())?;
+        let consumer: StreamConsumer = ClientConfig::new()
+            .set("bootstrap.servers", &self.kafka_broker)
+            .set("group.id", &group_id)
+            .set("auto.offset.reset", "earliest")
+            .set("enable.auto.commit", "true")
+            .create()
+            .map_err(|e| e.to_string())?;
+        consumer
+            .subscribe(&[&self.kafka_topic])
+            .map_err(|e| e.to_string())?;
+        println!("[feeder:{}] started, group={group_id}", feed.metric.0);
 
-    consumer
-        .subscribe(&[kafka_topic])
-        .map_err(|e| e.to_string())?;
-
-    println!("[feeder:{}] started, group={}", metric_name, group_id);
-
-    let mut initialized_sessions: HashSet<String> = HashSet::new();
-    let mut event_count: u64 = 0;
-
-    loop {
-        let msg = tokio::time::timeout(std::time::Duration::from_secs(10), consumer.recv()).await;
-
-        let msg = match msg {
-            Ok(Ok(m)) => m,
-            Ok(Err(e)) => {
-                eprintln!("[feeder:{}] kafka error: {}", metric_name, e);
-                continue;
-            }
-            Err(_) => {
-                println!("[feeder:{}] idle (no messages for 10s)", metric_name);
-                continue;
-            }
-        };
-
-        // Extract session_id from key
-        let session_id = match msg.key_view::<str>() {
-            Some(Ok(k)) => k.to_string(),
-            _ => continue,
-        };
-
-        // Parse payload as JSON
-        let payload = match msg.payload_view::<str>() {
-            Some(Ok(s)) => s,
-            _ => continue,
-        };
-
-        let json: serde_json::Value = match serde_json::from_str(payload) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-
-        // Initialize timeline if this is a new session
-        if !initialized_sessions.contains(&session_id) {
-            let agent_id = format!("timeline-driver(\"{}\")", session_id);
-            match invoke_agent_raw(&agent_id, "initialize-timeline", &[graph_wave, agg_wave]).await
+        let mut initialized: HashSet<SessionId> = HashSet::new();
+        let mut event_count: u64 = 0;
+        loop {
+            let message = match tokio::time::timeout(Duration::from_secs(10), consumer.recv()).await
             {
-                Ok(()) => {
-                    initialized_sessions.insert(session_id.clone());
-                    println!(
-                        "[feeder:{}] initialized session {}",
-                        metric_name, session_id
-                    );
-                }
-                Err(e) => {
-                    eprintln!(
-                        "[feeder:{}] failed to initialize session {}: {}",
-                        metric_name, session_id, e
-                    );
+                Ok(Ok(message)) => message,
+                Ok(Err(e)) => {
+                    eprintln!("[feeder:{}] kafka error: {e}", feed.metric.0);
                     continue;
                 }
-            }
-        }
+                Err(_) => {
+                    println!("[feeder:{}] idle (no messages for 10s)", feed.metric.0);
+                    continue;
+                }
+            };
 
-        // Determine which event columns are present
-        let event_columns: Vec<String> = extract_event_columns(&json);
+            let Some(Ok(key)) = message.key_view::<str>() else {
+                continue;
+            };
+            let session = SessionId::new(key);
+            let Some(Ok(payload)) = message.payload_view::<str>() else {
+                continue;
+            };
+            let Ok(event) = serde_json::from_str::<Event>(payload) else {
+                continue;
+            };
 
-        // Collect matching leaf suffixes (deduplicated)
-        let mut target_suffixes: HashSet<String> = HashSet::new();
-        for col in &event_columns {
-            if let Some(suffixes) = routing.get(col) {
-                for s in suffixes {
-                    target_suffixes.insert(s.clone());
+            if !initialized.contains(&session) {
+                match self.initialize(feed, &session).await {
+                    Ok(()) => {
+                        println!("[feeder:{}] initialized session {session}", feed.metric.0);
+                        initialized.insert(session.clone());
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "[feeder:{}] failed to initialize session {session}: {e}",
+                            feed.metric.0
+                        );
+                        continue;
+                    }
                 }
             }
-        }
 
-        // Convert event to WAVE
-        let wave_event = match wave::event_json_to_wave(&json) {
-            Some(w) => w,
-            None => continue,
+            for leaf in leaves_for(&feed.routes, &session, &event) {
+                if let Err(e) = self.add_event(&leaf, &event).await {
+                    eprintln!("[feeder:{}] failed to send to {leaf}: {e}", feed.metric.0);
+                }
+            }
+
+            event_count += 1;
+            if event_count.is_multiple_of(10) {
+                println!("[feeder:{}] processed {event_count} events", feed.metric.0);
+            }
+        }
+    }
+
+    async fn initialize(&self, feed: &MetricFeed, session: &SessionId) -> Result<(), String> {
+        let client = self.client.clone();
+        let session = session.clone();
+        let timeline = feed.timeline.clone();
+        let aggregation = feed.aggregation.clone();
+        tokio::task::spawn_blocking(move || {
+            client
+                .initialize_timeline(&session, &timeline, aggregation.as_ref())
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
+    async fn add_event(&self, leaf: &AgentName, event: &Event) -> Result<(), String> {
+        let client = self.client.clone();
+        let leaf = leaf.clone();
+        let event = event.clone();
+        tokio::task::spawn_blocking(move || {
+            client.add_event(&leaf, &event).map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+}
+
+/// The leaves of `session` that read at least one column of `event`, in a
+/// stable order and without duplicates.
+fn leaves_for(routes: &Routes, session: &SessionId, event: &Event) -> Vec<AgentName> {
+    let suffixes: BTreeSet<&str> = event
+        .fields
+        .iter()
+        .filter_map(|field| routes.get(&field.column))
+        .flatten()
+        .map(|suffix| suffix.0.as_str())
+        .collect();
+    suffixes
+        .into_iter()
+        .map(|suffix| AgentName::new(format!("{session}-{suffix}")))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common_lib::{EventField, EventValue};
+
+    #[test]
+    fn routes_events_to_leaves_reading_their_columns() {
+        let routes: Routes = [
+            (
+                EventColumnName::new("playerStateChange"),
+                vec![
+                    AgentSuffix("has-existed-4".into()),
+                    AgentSuffix("latest-event-to-state-8".into()),
+                ],
+            ),
+            (
+                EventColumnName::new("userAction"),
+                vec![AgentSuffix("has-existed-within-6".into())],
+            ),
+        ]
+        .into();
+        let event = Event {
+            time: 1,
+            fields: vec![
+                EventField::new("playerStateChange", EventValue::StringValue("play".into())),
+                EventField::new("cdn", EventValue::StringValue("akamai".into())),
+            ],
         };
-
-        // Send to each matching leaf agent
-        for suffix in &target_suffixes {
-            let agent_name = format!("{}-{}", session_id, suffix);
-            let agent_id = format!("event-processor(\"{}\")", agent_name);
-            if let Err(e) = invoke_agent_raw(&agent_id, "add-event", &[&wave_event]).await {
-                eprintln!(
-                    "[feeder:{}] failed to send to {}: {}",
-                    metric_name, agent_name, e
-                );
-            }
-        }
-
-        event_count += 1;
-        if event_count % 10 == 0 {
-            println!("[feeder:{}] processed {} events", metric_name, event_count);
-        }
+        assert_eq!(
+            leaves_for(&routes, &SessionId::new("s"), &event),
+            vec![
+                AgentName::new("s-has-existed-4"),
+                AgentName::new("s-latest-event-to-state-8"),
+            ]
+        );
     }
-}
-
-/// Extract event column names from a JSON event payload.
-///
-/// Expects `{"time": N, "event": [["col", {...}], ...]}`.
-/// Returns the column names from the event array.
-fn extract_event_columns(json: &serde_json::Value) -> Vec<String> {
-    let mut columns = Vec::new();
-    if let Some(event_arr) = json.get("event").and_then(|e| e.as_array()) {
-        for entry in event_arr {
-            if let Some(pair) = entry.as_array() {
-                if let Some(col) = pair.first().and_then(|c| c.as_str()) {
-                    columns.push(col.to_string());
-                }
-            }
-        }
-    }
-    columns
-}
-
-/// Invoke a Golem agent via CLI. Uses async `tokio::process::Command` to avoid
-/// blocking the tokio runtime.
-async fn invoke_agent_raw(agent_id: &str, function: &str, args: &[&str]) -> Result<(), String> {
-    let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|p| p.parent())
-        .expect("Cannot determine workspace root");
-
-    let mut cmd = tokio::process::Command::new("golem");
-    cmd.args(["agent", "invoke", "--format", "json", agent_id, function]);
-    for arg in args {
-        cmd.arg(arg);
-    }
-    cmd.current_dir(workspace_root);
-
-    let output = cmd.output().await.map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(stderr.to_string());
-    }
-    Ok(())
 }

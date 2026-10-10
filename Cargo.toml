@@ -13,18 +13,14 @@ members = [
 [profile.release]
 opt-level = "s"
 lto = true
+strip = "symbols"
 
 [workspace.dependencies]
-
-golem-rust = { version = "1.10.4", features = [
-    "export_golem_agentic",
-#    "golem_ai" # Uncomment to use Golem AI libraries
-] }
-
-# Advanced HTTP client, alternative of wstd::http
-# golem-wasi-http = { version = "0.1.0", features = ["json"] }
-
-log = { version = "0.4.29", features = ["kv"] }
+golem-rust = { version = "=3.0.0-rc2", features = ["export_golem_agentic"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-wstd = {version = "=0.5.4", features = ["default", "json"] }
+
+# Golem's Rust template builds the WIT bindings with Golem's forked wit-bindgen,
+# which shrinks the lift/lower wrappers generated for golem-rust.
+[patch.crates-io]
+wit-bindgen = { git = "https://github.com/golemcloud/wit-bindgen", branch = "golem-outline-lift-v0.58.0", version = "=0.59.0" }

@@ -8,10 +8,5 @@ crate-type = ["cdylib"]
 path = "src/lib.rs"
 
 [dependencies]
-common-lib = { path = "../../common-rust/common-lib" }
-
-log = { workspace = true }
+common-lib = { path = "../../common-rust/common-lib", features = ["golem"] }
 golem-rust = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-wstd = { workspace = true }

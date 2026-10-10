@@ -2,14 +2,14 @@
 name = "kafka-consumer-feeder"
 version = "0.1.0"
 edition = "2021"
-description = "Consumes events from Kafka and feeds them to Golem agents via REST API. Reusable for local testing and cloud deployments."
+description = "Consumes events from Kafka and feeds them to the timeline's leaf agents via the golem CLI. Reusable for local testing and cloud deployments."
 
 [dependencies]
+common-lib = { path = "../../common-rust/common-lib" }
+timeline-client = { path = "../../common-rust/timeline-client" }
 rdkafka = { version = "0.36", features = ["cmake-build"] }
-reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { workspace = true }
 log = "0.4"
 env_logger = "0.11"
 

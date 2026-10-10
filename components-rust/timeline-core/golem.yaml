@@ -1,5 +1,0 @@
-# yaml-language-server: $schema=https://schema.golem.cloud/app/golem/1.4.0/golem.schema.json
-
-components:
-  timeline:core:
-    templates: rust
