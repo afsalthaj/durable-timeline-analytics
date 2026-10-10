@@ -1,22 +1,9 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
-use common_lib::{
-    AgentName, AggregationConfig, EventValue, StateDynamicsTimeLinePoint, StatePoint,
-};
+use common_lib::{AgentName, AggregationConfig, EventValue};
 
 use crate::agents::aggregator::AggregatorClient;
 use crate::agents::timeline_processor::TimelineProcessorClient;
-use crate::types::*;
-
-pub(crate) fn to_state_point<T>(
-    point: Option<&StateDynamicsTimeLinePoint<T>>,
-    to_value: impl Fn(&T) -> EventValue,
-) -> Option<StatePoint> {
-    point.map(|p| StatePoint {
-        t1: p.t1,
-        t2: p.t2,
-        value: to_value(&p.value),
-    })
-}
+use crate::types::{ChildStateChange, ParentRef};
 
 pub(crate) async fn notify_parent(
     parent: Option<&ParentRef>,
@@ -50,9 +37,13 @@ pub(crate) async fn notify_aggregator(
     value: &EventValue,
     group_by_value: Option<&EventValue>,
 ) {
-    let (Some(config), Some(group_value), Some(new_value)) =
-        (aggregation, group_by_value, value.as_f64())
-    else {
+    let Some(config) = aggregation else {
+        return;
+    };
+    let Some(group_value) = group_by_value else {
+        return;
+    };
+    let Some(new_value) = value.as_f64() else {
         return;
     };
 

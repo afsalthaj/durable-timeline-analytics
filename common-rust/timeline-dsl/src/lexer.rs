@@ -284,7 +284,7 @@ impl<'a> Lexer<'a> {
         while self.pos < self.input.len() && self.input[self.pos].is_ascii_digit() {
             self.pos += 1;
         }
-        if self.peek() == Some(b'.') && self.peek_next().map_or(false, |b| b.is_ascii_digit()) {
+        if self.peek() == Some(b'.') && self.peek_next().is_some_and(|b| b.is_ascii_digit()) {
             self.advance(); // '.'
             while self.pos < self.input.len() && self.input[self.pos].is_ascii_digit() {
                 self.pos += 1;

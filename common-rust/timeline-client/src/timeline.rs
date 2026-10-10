@@ -5,7 +5,7 @@ use common_lib::{
     StatePoint, TimeLineOp, TimelineError,
 };
 
-use crate::cli::{arg, AgentRef, AgentType, ClientError, GolemCli};
+use crate::cli::{AgentRef, AgentType, ClientError, GolemCli, arg};
 
 #[derive(Debug, Clone)]
 pub struct TimelineClient {

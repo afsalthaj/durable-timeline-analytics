@@ -12,12 +12,13 @@ Durable timeline analytics on [Golem](https://learn.golem.cloud) — a durable a
 ## Architecture
 
 - `golem.yaml` — the single application manifest (manifest version 1.6); the component is `timeline:core`
-- `components-rust/timeline-core/` — the WASM component, containing all four agent types (TimelineDriver, EventProcessor, TimelineProcessor, Aggregator). `plan.rs` turns a timeline into the agents to create.
+- `components-rust/timeline-core/` — the WASM component, containing all four agent types (TimelineDriver, EventProcessor, TimelineProcessor, Aggregator). `plan.rs` turns a timeline into the agents to create; `compute/` holds the leaf and derived computations as plain, unit-tested state machines. Agents only wire them to RPC.
 - `common-rust/common-lib/` — shared domain types (`TimeLineOp`, `EventPredicate`, `Event`, `AggregationConfig`, agent result types, `StateDynamicsTimeLine`). The `golem` feature derives the Golem schema traits.
 - `common-rust/timeline-dsl/` — parser for the timeline DSL
 - `common-rust/timeline-client/` — native client: renders arguments for and decodes results from `golem agent invoke`
 - `services/` — standalone binaries reusable for cloud deployments (event-generator, kafka-producer, kafka-consumer-feeder, dashboard)
 - `test/integration-harness/` — integration tests that invoke Golem agents via the CLI
+- `test/sample-event-{producer,feeder}/` — Pulsar samples, excluded from the workspace (the `pulsar` crate needs `protoc`); build them from their own directories
 
 ## Key conventions
 

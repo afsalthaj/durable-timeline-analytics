@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 use common_lib::{AgentName, NodeNumber, SessionId, TimeLineOp};
 
-use crate::types::*;
+use crate::types::{ChildSlot, DerivedOperation, LeafOperation, ParentRef};
 
 /// What one agent of a timeline graph computes.
 #[derive(Clone, Debug)]

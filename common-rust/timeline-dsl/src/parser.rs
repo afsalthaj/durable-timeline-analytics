@@ -233,7 +233,7 @@ impl Parser {
             other => {
                 return Err(self.error(format!(
                     "expected predicate operator ('==', '>', '<'), found '{other}'"
-                )))
+                )));
             }
         };
         self.advance();
@@ -318,7 +318,7 @@ impl Parser {
             other => {
                 return Err(self.error(format!(
                     "expected aggregation function (count, sum, avg, min, max), found '{other}'"
-                )))
+                )));
             }
         };
         self.advance();

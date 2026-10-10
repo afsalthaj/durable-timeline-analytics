@@ -4,13 +4,13 @@ use std::fmt::{self, Display};
 use std::path::PathBuf;
 use std::process::Command;
 
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use common_lib::AgentName;
 
-use crate::rust_syntax::{to_rust_syntax, RenderError};
+use crate::rust_syntax::{RenderError, to_rust_syntax};
 use crate::schema_json::{DecodeError, TypedResult};
 
 #[derive(Debug)]

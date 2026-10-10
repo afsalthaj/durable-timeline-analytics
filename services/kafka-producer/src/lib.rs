@@ -19,8 +19,8 @@ use std::error::Error;
 use std::time::Duration;
 
 use event_generator::{Event, GeneratedSession};
-use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::ClientConfig;
+use rdkafka::producer::{FutureProducer, FutureRecord};
 
 /// Publishes timeline events to Kafka.
 pub struct TimelineKafkaProducer {
