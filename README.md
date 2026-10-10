@@ -6,9 +6,11 @@ A metric language for **what is true over time**, not just what happened in a wi
 
 Streaming engines are built for window aggregates: counts, sums, profiles. Flink, Spark, Kafka Streams, PySpark, and the in-house stacks built on them all do this well. They are weaker at the questions fraud, QoE, and risk teams actually write down:
 
-> Has play ever started, was there *no* seek in the last 5 seconds, and is the player *currently* buffering — and **for how long** has that been true?
+**Video streaming.** Has play ever started, was there *no* seek in the last 5 seconds, and is the player *currently* buffering — and **for how long** has that been true?
 
-That is a **state of affairs**, not a hop window. This project compiles that sentence into a live computation graph. Each clause is its own durable worker. Events push changes up the tree. A query at time *t* is a local lookup — no replay.
+**Risk ops.** Has this card ever been used present, was there *no* successful PIN in the last 60 seconds, and is the merchant *currently* in a new country — and **for how long** has that been true?
+
+Those are **states of affairs**, not hop windows. This project compiles that sentence into a live computation graph. Each clause is its own durable worker. Events push changes up the tree. A query at time *t* is a local lookup — no replay.
 
 Paper: [TimeLine Analytics (CIDR 2023)](https://www.cidrdb.org/cidr2023/papers/p22-milner.pdf). [Slides](https://github.com/afsalthaj/golem-timeline-presentation/blob/main/presentation_last.pdf). Runtime: [Golem](https://learn.golem.cloud) 1.6.
 
