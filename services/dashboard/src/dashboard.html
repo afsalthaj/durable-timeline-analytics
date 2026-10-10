@@ -310,30 +310,13 @@
       padding: 8px 12px; border-radius: 6px; font-size: 11px; font-weight: 400;
       white-space: nowrap; z-index: 10; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
     }
-    .tl-bar-wrap {
-      margin-top: 10px; position: relative; height: 28px;
-      background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
-      overflow: hidden;
+    .tl-line {
+      display: block; width: 100%; height: 48px; margin-top: 10px;
     }
-    .tl-playhead {
-      position: absolute; top: -2px; bottom: -2px; width: 2px;
-      background: #fff; box-shadow: 0 0 8px rgba(255,255,255,0.8);
-      z-index: 3; pointer-events: none;
+    .snapshot-caption {
+      color: var(--text-muted); font-size: 13px; line-height: 1.55;
+      margin: 0 0 18px; max-width: 720px;
     }
-    .tl-bar-wrap.root-bar { border-color: var(--rose); box-shadow: 0 0 8px rgba(218,44,90,0.25); }
-    .tl-segment {
-      position: absolute; top: 0; bottom: 0; display: flex; align-items: center;
-      justify-content: center; font-size: 10px; font-weight: 600;
-      font-family: var(--mono); color: #fff;
-      overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-      border-right: 1px solid rgba(0,0,0,0.3); min-width: 2px;
-      transition: left .3s, width .3s;
-    }
-    .tl-segment.val-true { background: rgba(2,167,209,0.5); }
-    .tl-segment.val-false { background: rgba(100,100,120,0.3); color: var(--text-muted); }
-    .tl-segment.val-string { background: rgba(167,139,250,0.4); }
-    .tl-segment.val-number { background: rgba(212,168,83,0.45); }
-    .tl-segment.val-new { outline: 2px solid var(--cyan); outline-offset: -2px; }
     .tl-axis {
       display: flex; justify-content: space-between; font-size: 9px;
       color: var(--text-muted); margin-top: 2px; padding: 0 2px;
@@ -490,7 +473,7 @@
 
     <div id="tree-output">
       <div class="empty-state">
-        <p>Select a metric, pick a session, then click <strong>▶ Live</strong> to play time forward. Snapshot queries one instant.</p>
+        <p><strong>Snapshot</strong> is the value of each clause at one time — like the README expression tree, with answers filled in. <strong>Live</strong> draws those values as a step line over time.</p>
       </div>
     </div>
   </div>
@@ -607,40 +590,58 @@
       return formatEventValue(last.value);
     }
 
-    function classifyValue(val) {
-      if (val === 'true') return 'val-true';
-      if (val === 'false') return 'val-false';
-      if (/^-?\d+(\.\d+)?$/.test(val)) return 'val-number';
-      return 'val-string';
-    }
-
-    function renderTimelineBar(result, prevPointCount, isRoot, globalMin, globalMax, playhead) {
+    function renderStepLine(result, isRoot, tMin, tMax, playhead) {
       const pts = getTimelinePoints(result);
-      if (pts.length === 0) return '<span style="color:var(--text-muted);font-size:12px">No state at this t — Live plays from t=1</span>';
-
-      const tMin = globalMin;
-      const tMax = globalMax;
+      if (pts.length === 0) return '';
+      const w = 720;
+      const h = 48;
+      const pad = 6;
       const span = tMax - tMin || 1;
-
-      let html = '<div class="tl-bar-wrap' + (isRoot ? ' root-bar' : '') + '">';
+      function xAt(t) {
+        const clamped = Math.min(Math.max(t, tMin), tMax);
+        return pad + ((clamped - tMin) / span) * (w - pad * 2);
+      }
+      const labels = pts.map((pt) => formatEventValue(pt.value));
+      const numeric = labels.every((v) => /^-?\d+(\.\d+)?$/.test(v));
+      const booleanish = labels.every((v) => v === 'true' || v === 'false');
+      let yAt;
+      if (numeric) {
+        const nums = labels.map(Number);
+        const lo = Math.min.apply(null, nums.concat([0]));
+        const hi = Math.max.apply(null, nums.concat([1]));
+        const range = hi - lo || 1;
+        yAt = (v) => h - pad - ((Number(v) - lo) / range) * (h - pad * 2);
+      } else if (booleanish) {
+        yAt = (v) => (v === 'true' ? pad + 8 : h - pad - 8);
+      } else {
+        const uniq = [];
+        for (let i = 0; i < labels.length; i++) {
+          if (uniq.indexOf(labels[i]) < 0) uniq.push(labels[i]);
+        }
+        yAt = (v) => {
+          const i = uniq.indexOf(v);
+          if (uniq.length < 2) return h / 2;
+          return pad + 8 + (i / (uniq.length - 1)) * (h - pad * 2 - 16);
+        };
+      }
+      let d = '';
       for (let i = 0; i < pts.length; i++) {
         const pt = pts[i];
-        const val = formatEventValue(pt.value);
-        const t2 = pt.t2 != null ? pt.t2 : tMax;
-        const left = ((pt.t1 - tMin) / span * 100);
-        const width = (Math.max((t2 - pt.t1) / span * 100, 0.5));
-        const isNew = prevPointCount != null && i >= prevPointCount;
-        const cls = classifyValue(val) + (isNew ? ' val-new' : '');
-        html += '<div class="tl-segment ' + cls + '" style="left:' + left + '%;width:' + width +
-          '%" title="[' + pt.t1 + ', ' + (pt.t2 != null ? pt.t2 : '∞') + ') = ' + val + '">' +
-          escHtml(val) + '</div>';
+        const y = yAt(labels[i]).toFixed(1);
+        const x1 = xAt(pt.t1).toFixed(1);
+        const x2 = xAt(pt.t2 != null ? pt.t2 : tMax).toFixed(1);
+        d += (i === 0 ? 'M' : 'L') + x1 + ' ' + y + 'H' + x2;
       }
+      const stroke = isRoot ? '#DA2C5A' : '#02A7D1';
+      let svg = '<svg class="tl-line" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" role="img">';
+      svg += '<line x1="' + pad + '" y1="' + (h - 1) + '" x2="' + (w - pad) + '" y2="' + (h - 1) + '" stroke="#222630" />';
+      svg += '<path d="' + d + '" fill="none" stroke="' + stroke + '" stroke-width="2" stroke-linejoin="round" />';
       if (playhead != null && playhead >= tMin && playhead <= tMax) {
-        const left = ((playhead - tMin) / span * 100);
-        html += '<div class="tl-playhead" style="left:' + left + '%" title="t = ' + playhead + '"></div>';
+        const px = xAt(playhead).toFixed(1);
+        svg += '<line x1="' + px + '" x2="' + px + '" y1="2" y2="' + (h - 2) + '" stroke="#fff" stroke-width="1.5" />';
       }
-      html += '</div>';
-      return html;
+      svg += '</svg>';
+      return svg;
     }
 
     // ========== Deploy Metric ==========
@@ -1037,7 +1038,7 @@
       const axis = playing
         ? { playhead, globalMin: playbackStart, globalMax: playbackEnd }
         : null;
-      renderInspectTree(session, t1, results, axis);
+      renderInspectTree(session, t1, results, axis, playing);
 
       for (const r of results) {
         prevPointCounts[r.suffix] = getTimelinePoints(r.result).length;
@@ -1094,7 +1095,7 @@
     stopStreamBtn.addEventListener('click', stopStream);
     snapshotBtn.addEventListener('click', () => { stopStream(); queryAllNodes(false); });
 
-    function renderInspectTree(session, t1, results, axis) {
+    function renderInspectTree(session, t1, results, axis, playing) {
       let globalMin = axis ? axis.globalMin : Infinity;
       let globalMax = axis ? axis.globalMax : 0;
       if (!axis) {
@@ -1133,18 +1134,23 @@
         '</code> — Metric: <code>' + escHtml(selectedMetric.name) +
         '</code> at t = <code>' + t1 + '</code></div>';
 
-      html += '<div class="tl-axis" style="margin-bottom:8px;font-size:11px">' +
-        '<span>t = ' + globalMin + '</span><span>t = ' + globalMax + '</span></div>';
+      if (playing) {
+        html += '<p class="snapshot-caption">Live: each line is that clause over time. The white cursor is now.</p>';
+        html += '<div class="tl-axis" style="margin-bottom:8px;font-size:11px">' +
+          '<span>t = ' + globalMin + '</span><span>t = ' + globalMax + '</span></div>';
+      } else {
+        html += '<p class="snapshot-caption">Snapshot: the answer to each clause <em>at this instant</em>. It is not a history. Use Live to watch the timeline.</p>';
+      }
 
       if (rooted) {
-        html += renderInspectNode(rooted, globalMin, globalMax, playheadAt);
+        html += renderInspectNode(rooted, globalMin, globalMax, playheadAt, playing);
       }
 
       html += '</div>';
       treeOutput.innerHTML = html;
     }
 
-    function renderInspectNode(r, globalMin, globalMax, playheadAt) {
+    function renderInspectNode(r, globalMin, globalMax, playheadAt, playing) {
       const currentValue = r.status === 'ok' ? summarizeResult(r.result) : (r.status === 'err' ? '—' : '—');
       const valueCls = r.status === 'ok' ? 'ok' : (r.status === 'err' ? 'err' : 'pending');
       const rootTag = r.isRoot ? ' <span style="color:var(--rose);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">metric</span>' : '';
@@ -1158,16 +1164,15 @@
 
       if (r.status === 'err') {
         html += '<div class="error-msg" style="margin-top:8px">' + escHtml(r.error) + '</div>';
-      } else if (r.status === 'ok') {
-        const prev = prevPointCounts[r.suffix];
-        html += renderTimelineBar(r.result, prev, r.isRoot, globalMin, globalMax, playheadAt);
+      } else if (r.status === 'ok' && playing) {
+        html += renderStepLine(r.result, r.isRoot, globalMin, globalMax, playheadAt);
       }
 
       html += '</div>';
       if (r.children && r.children.length) {
         html += '<div class="inspect-children">';
         for (const child of r.children) {
-          html += renderInspectNode(child, globalMin, globalMax, playheadAt);
+          html += renderInspectNode(child, globalMin, globalMax, playheadAt, playing);
         }
         html += '</div>';
       }
