@@ -2,13 +2,15 @@
 
 A metric language for **what is true over time**, not just what happened in a window.
 
+Talk: [LambdaConf 2024](https://www.youtube.com/watch?v=9WjUBOfgriY)
+
 Streaming engines are built for window aggregates: counts, sums, profiles. Flink, Spark, Kafka Streams, PySpark, and the in-house stacks built on them all do this well. They are weaker at the questions fraud, QoE, and risk teams actually write down:
 
 > Has play ever started, was there *no* seek in the last 5 seconds, and is the player *currently* buffering — and **for how long** has that been true?
 
 That is a **state of affairs**, not a hop window. This project compiles that sentence into a live computation graph. Each clause is its own durable worker. Events push changes up the tree. A query at time *t* is a local lookup — no replay.
 
-Paper: [TimeLine Analytics (CIDR 2023)](https://www.cidrdb.org/cidr2023/papers/p22-milner.pdf). Talk: [LambdaConf 2024](https://www.youtube.com/watch?v=9WjUBOfgriY) · [slides](https://github.com/afsalthaj/golem-timeline-presentation/blob/main/presentation_last.pdf). Runtime: [Golem](https://learn.golem.cloud) 1.6.
+Paper: [TimeLine Analytics (CIDR 2023)](https://www.cidrdb.org/cidr2023/papers/p22-milner.pdf). [Slides](https://github.com/afsalthaj/golem-timeline-presentation/blob/main/presentation_last.pdf). Runtime: [Golem](https://learn.golem.cloud) 1.6.
 
 ![Dashboard](images/img.png)
 
