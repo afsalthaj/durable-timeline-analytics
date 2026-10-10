@@ -118,7 +118,6 @@ The feeder is a normal consumer. On each event it initializes the session (idemp
 
 ## Learn more
 
-- [Architecture, production, scale, compute reuse](docs/design.md) — the long-form notes that used to be this README
-- [Agent types and conventions](AGENTS.md)
+- **[docs/](docs/README.md)** — CIRR walkthrough, architecture, production, scale, compute reuse
 - [Open work](ISSUES.md)
 - [TimeLine Analytics paper](https://www.cidrdb.org/cidr2023/papers/p22-milner.pdf)

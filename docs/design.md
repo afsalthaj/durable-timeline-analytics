@@ -1,8 +1,7 @@
 # Design notes
 
-This is the long-form material that used to live in the root README: CIRR
-walkthrough, architecture, production deployment, capacity planning, and
-compute reuse. The landing page is [README.md](../README.md).
+Long-form timeline design: CIRR, architecture, production, scale, compute reuse.
+Index: [docs/](README.md). Landing page: [README.md](../README.md).
 
 ---
 
