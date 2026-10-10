@@ -14,6 +14,25 @@ Paper: [TimeLine Analytics (CIDR 2023)](https://www.cidrdb.org/cidr2023/papers/p
 
 ![Dashboard](images/img.png)
 
+## Get your hands dirty
+
+```shell
+cargo make demo
+```
+
+Docker, Rust ≥ 1.94 (`wasm32-wasip2`), and [Golem CLI 1.6+](https://learn.golem.cloud). That's it.
+
+It starts Golem and Kafka, deploys CIRR across three CDNs, feeds playback events, and opens [http://localhost:3000](http://localhost:3000). Then try:
+
+- **Computation Progress** → `demo-akamai-1` → query at time `250` — every clause of CIRR, live
+- Same session, time `120` — play has started, buffering has not
+- The aggregate view — count / sum / avg by CDN (akamai, cloudfront, fastly)
+
+```shell
+cargo test --workspace   # unit tests
+cargo make test          # integration (local Golem + Kafka)
+```
+
 ## Why this, if you already have a stream engine
 
 | What you have today | What this adds |
@@ -78,21 +97,6 @@ Point-in-time lookup on any node is local. The push already happened.
 A session with no events costs **storage, not RAM**. Golem wakes only the path that an event touches (~5 workers for CIRR, milliseconds each) and suspends them again. Ten million concurrent sessions is tens of millions of agents on disk and tens of thousands in memory.
 
 That is the same “always on, bursty, must be correct” regime those engines target — except the unit of work is a **composable temporal expression**, not a sliding-window profile.
-
-## Try it
-
-Requires Docker, Rust ≥ 1.94 (`wasm32-wasip2`), and [Golem CLI 1.6+](https://learn.golem.cloud).
-
-```shell
-cargo make demo
-```
-
-Opens [http://localhost:3000](http://localhost:3000): deploy CIRR, inspect each clause of a session, compare CDNs.
-
-```shell
-cargo test --workspace          # unit tests
-cargo make test                 # integration (local Golem + Kafka)
-```
 
 ## Language
 
