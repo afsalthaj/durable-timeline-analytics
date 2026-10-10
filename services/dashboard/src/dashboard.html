@@ -6,27 +6,32 @@
   <title>Timeline Analytics Dashboard</title>
   <style>
     :root {
-      --bg: #0A0A0A;
-      --surface: #111318;
-      --surface2: #1a1e28;
-      --border: #222630;
-      --text: #e8ecf4;
-      --text-muted: #6b7890;
-      --accent: #02A7D1;
-      --accent-dim: #222630;
-      --green: #02A7D1;
-      --orange: #A78BFA;
-      --red: #A78BFA;
-      --cyan: #02A7D1;
-      --purple: #6366F1;
-      --leaf-color: #02A7D1;
-      --derived-color: #A78BFA;
-      --deep-blue: #133A75;
-      --siri: #A78BFA;
-      --siri-mid: #6366F1;
-      --rose: #DA2C5A;
-      --siri-gradient: linear-gradient(135deg, #DA2C5A 0%, #6366F1 50%, #02A7D1 100%);
+      --bg: #f4f5f7;
+      --surface: #ffffff;
+      --surface2: #f3f4f6;
+      --border: #e5e7eb;
+      --text: #111827;
+      --text-muted: #6b7280;
+      --accent: #0369a1;
+      --accent-dim: #e5e7eb;
+      --green: #0f766e;
+      --orange: #d97706;
+      --red: #b91c1c;
+      --cyan: #0369a1;
+      --purple: #6d28d9;
+      --leaf-color: #0369a1;
+      --derived-color: #6d28d9;
+      --deep-blue: #1e3a5f;
+      --siri: #6d28d9;
+      --siri-mid: #4f46e5;
+      --rose: #be123c;
+      --siri-gradient: none;
       --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --state-play: #15803d;
+      --state-buffer: #d97706;
+      --state-pause: #6d28d9;
+      --state-init: #64748b;
+      --state-seek: #b91c1c;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -36,12 +41,10 @@
     header {
       padding: 20px 40px; border-bottom: 1px solid var(--border);
       display: flex; align-items: center; gap: 16px;
-      background: linear-gradient(135deg, #0A0A0A 0%, #1a1040 35%, #1C5D9C 70%, #0d2854 100%);
+      background: var(--surface);
     }
     header h1 {
-      font-size: 24px; font-weight: 700; letter-spacing: -0.3px;
-      background: var(--siri-gradient); -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent; background-clip: text;
+      font-size: 22px; font-weight: 700; letter-spacing: -0.3px; color: var(--text);
     }
     header .status { font-size: 12px; color: var(--text-muted); margin-left: auto; }
     header .status .dot {
@@ -50,7 +53,7 @@
     }
     .tabs {
       display: flex; border-bottom: 1px solid var(--border); padding: 0 40px;
-      background: linear-gradient(90deg, var(--surface) 0%, #111828 100%);
+      background: var(--surface);
     }
     .tab {
       padding: 14px 24px; font-size: 13px; font-weight: 600; color: var(--text-muted);
@@ -59,18 +62,19 @@
       text-transform: uppercase; letter-spacing: 0.5px;
     }
     .tab:hover { color: var(--cyan); }
-    .tab.active { color: #fff; border-bottom-color: var(--rose); background: rgba(218,44,90,0.1); box-shadow: inset 0 -6px 12px -6px rgba(218,44,90,0.3); }
-    .panel { display: none; padding: 40px 48px; }
+    .tab.active { color: var(--text); border-bottom-color: var(--rose); background: #fff1f2; }
+    .panel { display: none; padding: 36px 40px 48px; }
+    #inspect-panel.panel, #live-panel.panel { padding-left: 32px; padding-right: 32px; }
     .panel.active { display: block; }
     .guide { max-width: 900px; }
     .guide h2 { font-size: 20px; margin-bottom: 12px; color: var(--text); }
     .guide .lead { color: var(--text-muted); font-size: 14px; margin-bottom: 28px; line-height: 1.7; }
     .dsl-block {
-      background: var(--surface); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
       padding: 20px 24px; font-family: var(--mono); font-size: 13px;
       line-height: 1.8; color: var(--text); margin-bottom: 36px; white-space: pre; overflow-x: auto;
       border-left: 3px solid var(--rose);
-      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      box-shadow: 0 1px 2px rgba(15,23,42,0.04);
     }
     .step { display: flex; gap: 16px; margin-bottom: 28px; }
     .step-num {
@@ -86,7 +90,7 @@
       display: block; background: var(--surface); border: 1px solid var(--border);
       border-radius: 6px; padding: 10px 14px; font-family: var(--mono);
       font-size: 12.5px; color: var(--green); margin-top: 8px; white-space: pre; overflow-x: auto;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      box-shadow: none;
     }
     .controls {
       display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-bottom: 28px;
@@ -112,12 +116,12 @@
     }
     .presets { display: flex; gap: 10px; margin-bottom: 28px; flex-wrap: wrap; }
     .preset-btn {
-      background: var(--surface); border: 1px solid rgba(255,255,255,0.06); color: var(--text-muted);
+      background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);
       padding: 5px 12px; border-radius: 5px; font-size: 11px; cursor: pointer;
       font-weight: 500; transition: all .15s;
     }
-    .preset-btn:hover { color: var(--text); border-color: #3a3f4d; }
-    .preset-btn.active { color: #fff; border-color: var(--rose); background: rgba(218,44,90,0.1); }
+    .preset-btn:hover { color: var(--text); border-color: #cbd5e1; }
+    .preset-btn.active { color: var(--rose); border-color: var(--rose); background: #fff1f2; }
     .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
     .empty-state p { margin-top: 8px; font-size: 14px; }
     .metrics-grid {
@@ -125,9 +129,9 @@
       gap: 20px; margin-bottom: 28px;
     }
     .metric-card {
-      background: var(--surface); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
       padding: 24px; text-align: center;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+      box-shadow: 0 1px 2px rgba(15,23,42,0.04);
     }
     .metric-card .label {
       font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
@@ -138,9 +142,9 @@
     .metric-card .value.sum   { color: var(--rose); }
     .metric-card .value.avg   { color: var(--siri); }
     .result-section {
-      background: var(--surface); border: 1px solid rgba(255,255,255,0.06);
+      background: var(--surface); border: 1px solid var(--border);
       border-radius: 10px; padding: 32px; margin-bottom: 32px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.3), 0 1px 3px rgba(0,0,0,0.2);
+      box-shadow: 0 1px 2px rgba(15,23,42,0.04);
     }
     .agent-name {
       font-size: 14px; font-weight: 600; margin-bottom: 16px;
@@ -158,16 +162,16 @@
     .history-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px; }
     .history-table th {
       text-align: left; color: var(--text-muted); font-weight: 500;
-      padding: 6px 12px 6px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding: 6px 12px 6px 0; border-bottom: 1px solid var(--border);
     }
     .history-table td { padding: 6px 12px 6px 0; font-variant-numeric: tabular-nums; }
     .node-card {
       background: var(--surface2); border: 1px solid var(--border);
       border-radius: 8px; padding: 16px 20px; margin-bottom: 16px;
       min-height: 48px; transition: border-color .15s, box-shadow .15s;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+      box-shadow: none;
     }
-    .node-card:hover { border-color: #3a3f4d; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+    .node-card:hover { border-color: #cbd5e1; }
     .node-card.leaf { border-left: 3px solid var(--leaf-color); }
     .node-card.derived { border-left: 3px solid var(--derived-color); }
     .node-badge {
@@ -178,7 +182,7 @@
     .node-badge.derived { background: rgba(167,139,250,0.1); color: var(--derived-color); }
     .node-name {
       font-size: 13px; font-weight: 600; font-family: var(--mono);
-      white-space: pre-wrap; line-height: 1.45; max-width: 720px;
+      white-space: pre-wrap; line-height: 1.45; max-width: none; flex: 1;
     }
     .inspect-children {
       margin-left: 18px; padding-left: 16px;
@@ -208,7 +212,7 @@
     }
     textarea.dsl-editor {
       width: 100%; min-height: 110px; background: var(--surface);
-      border: 1px solid rgba(255,255,255,0.06); color: transparent; caret-color: var(--text);
+      border: 1px solid var(--border); color: transparent; caret-color: var(--text);
       border-radius: 6px; padding: 10px 14px; font-family: var(--mono);
       font-size: 12px; line-height: 1.6; resize: none; outline: none;
       box-shadow: inset 0 1px 4px rgba(0,0,0,0.2);
@@ -239,7 +243,7 @@
       position: relative; display: inline-flex; align-items: center; gap: 8px;
       background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
       padding: 7px 14px; margin: 4px 0; font-size: 12px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      box-shadow: none;
     }
     .tree-node-box.leaf { border-left: 3px solid var(--leaf-color); }
     .tree-node-box.derived { border-left: 3px solid var(--derived-color); }
@@ -270,11 +274,11 @@
     .tree-legend-dot.agg { background: var(--rose); }
     .metric-list { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 28px; }
     .metric-item {
-      background: var(--surface); border: 1px solid rgba(255,255,255,0.06);
+      background: var(--surface); border: 1px solid var(--border);
       border-radius: 8px; padding: 16px 20px; cursor: pointer; transition: all .15s;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+      box-shadow: none;
     }
-    .metric-item:hover { border-color: #3a3f4d; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+    .metric-item:hover { border-color: #cbd5e1; }
     .metric-item.active { border-color: var(--rose); border-left: 3px solid var(--rose); background: rgba(218,44,90,0.06); }
     .metric-item .metric-title { font-size: 14px; font-weight: 600; color: var(--text); }
     .metric-item .metric-dsl {
@@ -285,7 +289,7 @@
     .routing-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
     .routing-table th {
       text-align: left; color: var(--text-muted); font-weight: 500;
-      padding: 6px 12px 6px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding: 6px 12px 6px 0; border-bottom: 1px solid var(--border);
     }
     .routing-table td {
       padding: 6px 12px 6px 0; font-family: var(--mono); font-size: 12px;
@@ -306,12 +310,45 @@
     }
     .hint:hover::after {
       content: attr(data-tip); position: absolute; left: 24px; top: -4px;
-      background: var(--surface2); border: 1px solid rgba(255,255,255,0.06); color: var(--text);
+      background: var(--surface); border: 1px solid var(--border); color: var(--text);
       padding: 8px 12px; border-radius: 6px; font-size: 11px; font-weight: 400;
       white-space: nowrap; z-index: 10; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
     }
     .tl-line {
-      display: block; width: 100%; height: 48px; margin-top: 10px;
+      display: block; width: 100%; height: 72px; margin-top: 12px;
+    }
+    .tl-track {
+      position: relative; width: 100%; height: 40px; margin-top: 12px;
+      background: #eef1f4; border-radius: 6px; overflow: hidden;
+    }
+    .tl-track.state { height: 56px; }
+    .tl-band {
+      position: absolute; top: 8px; bottom: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 650; color: #fff;
+      border-radius: 4px; overflow: hidden; padding: 0 8px;
+      white-space: nowrap;
+    }
+    .tl-band.narrow { color: transparent; }
+    .tl-band.play { background: var(--state-play); }
+    .tl-band.buffer { background: var(--state-buffer); }
+    .tl-band.pause { background: var(--state-pause); }
+    .tl-band.init { background: var(--state-init); }
+    .tl-band.seek { background: var(--state-seek); }
+    .tl-band.true { background: #0f766e; }
+    .tl-band.false { background: #cbd5e1; color: #475569; }
+    .tl-band.other { background: #0284c7; }
+    .tl-cursor {
+      position: absolute; top: 0; bottom: 0; width: 2px;
+      background: #111827; z-index: 2; pointer-events: none;
+    }
+    .tl-legend {
+      display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px;
+      font-size: 11px; color: var(--text-muted);
+    }
+    .tl-legend i {
+      display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+      margin-right: 5px; vertical-align: -1px;
     }
     .snapshot-caption {
       color: var(--text-muted); font-size: 13px; line-height: 1.55;
@@ -590,55 +627,91 @@
       return formatEventValue(last.value);
     }
 
+    function stateBandClass(value) {
+      const v = String(value).toLowerCase();
+      if (v === 'play' || v === 'playing') return 'play';
+      if (v === 'buffer' || v === 'buffering') return 'buffer';
+      if (v === 'pause' || v === 'paused') return 'pause';
+      if (v === 'init' || v === 'idle') return 'init';
+      if (v === 'seek') return 'seek';
+      if (v === 'true') return 'true';
+      if (v === 'false') return 'false';
+      return 'other';
+    }
+
     function renderStepLine(result, isRoot, tMin, tMax, playhead) {
       const pts = getTimelinePoints(result);
       if (pts.length === 0) return '';
-      const w = 720;
-      const h = 48;
-      const pad = 6;
       const span = tMax - tMin || 1;
-      function xAt(t) {
-        const clamped = Math.min(Math.max(t, tMin), tMax);
-        return pad + ((clamped - tMin) / span) * (w - pad * 2);
-      }
       const labels = pts.map((pt) => formatEventValue(pt.value));
       const numeric = labels.every((v) => /^-?\d+(\.\d+)?$/.test(v));
-      const booleanish = labels.every((v) => v === 'true' || v === 'false');
-      let yAt;
-      if (numeric) {
-        const nums = labels.map(Number);
-        const lo = Math.min.apply(null, nums.concat([0]));
-        const hi = Math.max.apply(null, nums.concat([1]));
-        const range = hi - lo || 1;
-        yAt = (v) => h - pad - ((Number(v) - lo) / range) * (h - pad * 2);
-      } else if (booleanish) {
-        yAt = (v) => (v === 'true' ? pad + 8 : h - pad - 8);
-      } else {
-        const uniq = [];
-        for (let i = 0; i < labels.length; i++) {
-          if (uniq.indexOf(labels[i]) < 0) uniq.push(labels[i]);
-        }
-        yAt = (v) => {
-          const i = uniq.indexOf(v);
-          if (uniq.length < 2) return h / 2;
-          return pad + 8 + (i / (uniq.length - 1)) * (h - pad * 2 - 16);
-        };
+      function leftWidth(pt) {
+        const t2 = pt.t2 != null ? pt.t2 : tMax;
+        const left = ((Math.max(pt.t1, tMin) - tMin) / span) * 100;
+        const right = ((Math.min(t2, tMax) - tMin) / span) * 100;
+        return { left: Math.max(left, 0), width: Math.max(right - left, 0.4) };
       }
+      function cursor() {
+        if (playhead == null || playhead < tMin || playhead > tMax) return '';
+        const left = ((playhead - tMin) / span) * 100;
+        return '<div class="tl-cursor" style="left:' + left + '%"></div>';
+      }
+
+      if (!numeric) {
+        const states = {};
+        let html = '<div class="tl-track state">';
+        for (let i = 0; i < pts.length; i++) {
+          const value = labels[i];
+          const box = leftWidth(pts[i]);
+          const cls = stateBandClass(value);
+          states[cls] = value;
+          const narrow = box.width < 8 ? ' narrow' : '';
+          html += '<div class="tl-band ' + cls + narrow + '" style="left:' + box.left +
+            '%;width:' + box.width + '%" title="' + escHtml(value) + '">' +
+            escHtml(value) + '</div>';
+        }
+        html += cursor() + '</div>';
+        const legendKeys = Object.keys(states);
+        if (legendKeys.length > 1) {
+          html += '<div class="tl-legend">';
+          for (let i = 0; i < legendKeys.length; i++) {
+            html += '<span><i class="tl-band ' + legendKeys[i] + '" style="position:static;width:10px;height:10px;padding:0;border-radius:2px"></i>' +
+              escHtml(states[legendKeys[i]]) + '</span>';
+          }
+          html += '</div>';
+        }
+        return html;
+      }
+
+      const w = 1000;
+      const h = 72;
+      const pad = 8;
+      const nums = labels.map(Number);
+      const lo = Math.min.apply(null, nums.concat([0]));
+      const hi = Math.max.apply(null, nums.concat([1]));
+      const range = hi - lo || 1;
+      const xAt = (t) => pad + ((Math.min(Math.max(t, tMin), tMax) - tMin) / span) * (w - pad * 2);
+      const yAt = (v) => h - pad - ((Number(v) - lo) / range) * (h - pad * 2);
       let d = '';
+      let area = 'M' + xAt(pts[0].t1).toFixed(1) + ' ' + (h - pad);
       for (let i = 0; i < pts.length; i++) {
         const pt = pts[i];
         const y = yAt(labels[i]).toFixed(1);
         const x1 = xAt(pt.t1).toFixed(1);
         const x2 = xAt(pt.t2 != null ? pt.t2 : tMax).toFixed(1);
         d += (i === 0 ? 'M' : 'L') + x1 + ' ' + y + 'H' + x2;
+        area += 'L' + x1 + ' ' + y + 'H' + x2;
       }
-      const stroke = isRoot ? '#DA2C5A' : '#02A7D1';
+      area += 'L' + xAt(pts[pts.length - 1].t2 != null ? pts[pts.length - 1].t2 : tMax).toFixed(1) +
+        ' ' + (h - pad) + 'Z';
+      const stroke = isRoot ? '#be123c' : '#0369a1';
+      const fill = isRoot ? 'rgba(190,18,60,0.08)' : 'rgba(3,105,161,0.08)';
       let svg = '<svg class="tl-line" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" role="img">';
-      svg += '<line x1="' + pad + '" y1="' + (h - 1) + '" x2="' + (w - pad) + '" y2="' + (h - 1) + '" stroke="#222630" />';
-      svg += '<path d="' + d + '" fill="none" stroke="' + stroke + '" stroke-width="2" stroke-linejoin="round" />';
+      svg += '<path d="' + area + '" fill="' + fill + '" />';
+      svg += '<path d="' + d + '" fill="none" stroke="' + stroke + '" stroke-width="2.5" stroke-linejoin="round" />';
       if (playhead != null && playhead >= tMin && playhead <= tMax) {
         const px = xAt(playhead).toFixed(1);
-        svg += '<line x1="' + px + '" x2="' + px + '" y1="2" y2="' + (h - 2) + '" stroke="#fff" stroke-width="1.5" />';
+        svg += '<line x1="' + px + '" x2="' + px + '" y1="2" y2="' + (h - 2) + '" stroke="#111827" stroke-width="1.5" />';
       }
       svg += '</svg>';
       return svg;
