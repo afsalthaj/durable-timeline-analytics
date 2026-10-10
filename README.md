@@ -4,15 +4,36 @@ A metric language for **what is true over time**, not just what happened in a wi
 
 [Talk from Afsal Thaj](https://www.youtube.com/watch?v=9WjUBOfgriY)
 
-Streaming engines are built for window aggregates: counts, sums, profiles. Flink, Spark, Kafka Streams, PySpark, and the in-house stacks built on them all do this well. They are weaker at the questions fraud, QoE, and risk teams actually write down:
+Streaming engines are built for window aggregates: counts, sums, profiles. Flink, Spark, Kafka Streams, PySpark, and the in-house stacks built on them all do this well. They are weaker at the questions video-streaming and finance / risk-ops teams actually write down:
 
-> Has play ever started, was there *no* seek in the last 5 seconds, and is the player *currently* buffering — and **for how long** has that been true?
+**Video streaming.** Has play ever started, was there *no* seek in the last 5 seconds, and is the player *currently* buffering — and **for how long** has that been true?
 
-That is a **state of affairs**, not a hop window. This project compiles that sentence into a live computation graph. Each clause is its own durable worker. Events push changes up the tree. A query at time *t* is a local lookup — no replay.
+**Finance.** Has this card ever been used present, was there *no* successful PIN in the last 60 seconds, and is the merchant *currently* in a new country — and **for how long** has that been true?
+
+Those are **states of affairs**, not hop windows. This project compiles that sentence into a live computation graph. Each clause is its own durable worker. Events push changes up the tree. A query at time *t* is a local lookup — no replay.
 
 Paper: [TimeLine Analytics (CIDR 2023)](https://www.cidrdb.org/cidr2023/papers/p22-milner.pdf). [Slides](https://github.com/afsalthaj/golem-timeline-presentation/blob/main/presentation_last.pdf). Runtime: [Golem](https://learn.golem.cloud) 1.6.
 
 ![Dashboard](images/img.png)
+
+## Get your hands dirty
+
+```shell
+cargo make demo
+```
+
+Docker, Rust ≥ 1.94 (`wasm32-wasip2`), and [Golem CLI 1.6+](https://learn.golem.cloud). That's it.
+
+It starts Golem and Kafka, deploys CIRR across three CDNs, feeds playback events, and opens [http://localhost:3000](http://localhost:3000). Then try:
+
+- **Computation Progress** → `demo-akamai-1` → query at time `250` — every clause of CIRR, live
+- Same session, time `120` — play has started, buffering has not
+- The aggregate view — count / sum / avg by CDN (akamai, cloudfront, fastly)
+
+```shell
+cargo test --workspace   # unit tests
+cargo make test          # integration (local Golem + Kafka)
+```
 
 ## Why this, if you already have a stream engine
 
@@ -37,10 +58,14 @@ duration_where(
 ) | aggregate(group_by(cdn), count, sum, avg)
 ```
 
-Card-present anomaly — the location just changed:
+Finance — card-present, no recent PIN, merchant in a new country:
 
 ```javascript
-duration_in_cur_state(latest_event_to_state(location)) < 600
+duration_where(
+  has_existed(channel == "present")
+  && !has_existed_within(pinResult == "success", 60)
+  && latest_event_to_state(merchantCountry) == "FR"
+) | aggregate(group_by(issuer), count, sum, avg)
 ```
 
 Idle time by region:
@@ -78,21 +103,6 @@ Point-in-time lookup on any node is local. The push already happened.
 A session with no events costs **storage, not RAM**. Golem wakes only the path that an event touches (~5 workers for CIRR, milliseconds each) and suspends them again. Ten million concurrent sessions is tens of millions of agents on disk and tens of thousands in memory.
 
 That is the same “always on, bursty, must be correct” regime those engines target — except the unit of work is a **composable temporal expression**, not a sliding-window profile.
-
-## Try it
-
-Requires Docker, Rust ≥ 1.94 (`wasm32-wasip2`), and [Golem CLI 1.6+](https://learn.golem.cloud).
-
-```shell
-cargo make demo
-```
-
-Opens [http://localhost:3000](http://localhost:3000): deploy CIRR, inspect each clause of a session, compare CDNs.
-
-```shell
-cargo test --workspace          # unit tests
-cargo make test                 # integration (local Golem + Kafka)
-```
 
 ## Language
 
