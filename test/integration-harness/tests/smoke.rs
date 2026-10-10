@@ -1,103 +1,59 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
-//! Smoke test: verifies the basic end-to-end flow works.
+//! Smoke tests: the basic end-to-end flow against a running Golem server.
 //!
 //! Run: `cargo make smoke`
 
-#[cfg(test)]
-mod tests {
-    use integration_harness::golem_client::GolemClient;
-    use integration_harness::harness;
+use common_lib::{AgentName, InitializeResult};
+use integration_harness::fixtures::{column, event, latest, string};
+use integration_harness::harness::{self, TestResult};
 
-    /// Smoke test: initialize a trivial timeline, feed one event, check result.
-    ///
-    /// Timeline: latest_event_to_state(playerStateChange)
-    ///   - Single leaf node (latest-event-to-state-1).
-    ///   - Feed one event: {time: 100, playerStateChange: "play"}
-    ///   - Assert: get_leaf_result(101) returns "play"
-    #[test]
-    #[ignore]
-    fn test_smoke_single_leaf() {
-        harness::ensure_golem_running().expect("Failed to start Golem server");
-        harness::deploy_timeline_component().expect("Failed to deploy");
+/// Timeline `latest_event_to_state(playerStateChange)`: a single leaf that is
+/// also the root.
+#[test]
+#[ignore]
+fn single_leaf() -> TestResult {
+    let client = harness::setup()?;
+    let session = harness::unique_session("smoke-leaf");
 
-        let client = GolemClient::new();
-
-        // Initialize a simple timeline: latest_event_to_state(playerStateChange)
-        let session_id = "smoke-leaf-1";
-        let timeline_wave = "{nodes: [tl-latest-event-to-state(\"playerStateChange\")]}";
-
-        let init = client
-            .initialize_timeline(session_id, timeline_wave, "none")
-            .expect("Failed to initialize timeline");
-
-        let result_value = GolemClient::extract_result(&init);
-        println!("Init result: {:?}", result_value);
-
-        // The driver creates one leaf: {session_id}-latest-event-to-state-1
-        let leaf = format!("{}-latest-event-to-state-1", session_id);
-
-        // Feed one event
-        let event_wave = r#"{time: 100, event: [("playerStateChange", string-value("play"))]}"#;
-        let add_result = client.add_event(&leaf, event_wave).expect("Failed to add event");
-        println!("Add event result: {:?}", GolemClient::extract_result(&add_result));
-
-        // Query the leaf result at time 101
-        let result = client.get_leaf_result(&leaf, 101).expect("Failed to get leaf result");
-        let result_str = serde_json::to_string(&result).unwrap();
-        println!("Leaf result at t=101: {}", result_str);
-
-        assert!(
-            result_str.contains("play"),
-            "Expected 'play' in result, got: {}",
-            result_str
-        );
-
-        println!("✓ Smoke test passed!");
-    }
-
-    /// Smoke test with multiple events: verify state transitions.
-    #[test]
-    #[ignore]
-    fn test_smoke_state_transitions() {
-        harness::ensure_golem_running().expect("Failed to start Golem server");
-        harness::deploy_timeline_component().expect("Failed to deploy");
-
-        let client = GolemClient::new();
-        let session_id = "smoke-trans-1";
-
-        client
-            .initialize_timeline(
-                session_id,
-                "{nodes: [tl-latest-event-to-state(\"playerStateChange\")]}",
-                "none",
-            )
-            .expect("Failed to init");
-
-        let leaf = format!("{}-latest-event-to-state-1", session_id);
-
-        // Feed sequence: init → buffer → play
-        let events = [
-            r#"{time: 10, event: [("playerStateChange", string-value("init"))]}"#,
-            r#"{time: 20, event: [("playerStateChange", string-value("buffer"))]}"#,
-            r#"{time: 30, event: [("playerStateChange", string-value("play"))]}"#,
-        ];
-
-        for event in &events {
-            client.add_event(&leaf, event).expect("Failed to add event");
+    let init = client.initialize_timeline(&session, &latest("playerStateChange"), None)?;
+    let leaf = AgentName::new(format!("{session}-latest-event-to-state-1"));
+    assert_eq!(
+        init,
+        InitializeResult {
+            root_agent: leaf.clone(),
+            leaf_agents: vec![leaf.clone()],
         }
+    );
 
-        // Query at t=25 should give "buffer"
-        let result = client.get_leaf_result(&leaf, 25).unwrap();
-        let s = serde_json::to_string(&result).unwrap();
-        println!("Result at t=25: {}", s);
-        assert!(s.contains("buffer"), "Expected 'buffer' at t=25, got: {}", s);
+    client.add_event(&leaf, &event(100, &[column("playerStateChange", "play")]))?;
 
-        // Query at t=31 should give "play"
-        let result = client.get_leaf_result(&leaf, 31).unwrap();
-        let s = serde_json::to_string(&result).unwrap();
-        println!("Result at t=31: {}", s);
-        assert!(s.contains("play"), "Expected 'play' at t=31, got: {}", s);
+    let state = client
+        .get_leaf_result(&leaf, 101)?
+        .ok_or("no state at t=101")?;
+    assert_eq!(state.value, string("play"));
+    assert_eq!(state.t1, 100);
+    assert_eq!(client.get_leaf_result(&leaf, 99)?, None);
+    Ok(())
+}
 
-        println!("✓ State transitions test passed!");
+#[test]
+#[ignore]
+fn state_transitions() -> TestResult {
+    let client = harness::setup()?;
+    let session = harness::unique_session("smoke-transitions");
+
+    let init = client.initialize_timeline(&session, &latest("playerStateChange"), None)?;
+    let leaf = init.root_agent;
+
+    for (time, state) in [(10, "init"), (20, "buffer"), (30, "play")] {
+        client.add_event(&leaf, &event(time, &[column("playerStateChange", state)]))?;
     }
+
+    let at = |t| -> Result<_, Box<dyn std::error::Error>> {
+        Ok(client.get_leaf_result(&leaf, t)?.map(|point| point.value))
+    };
+    assert_eq!(at(15)?, Some(string("init")));
+    assert_eq!(at(25)?, Some(string("buffer")));
+    assert_eq!(at(31)?, Some(string("play")));
+    Ok(())
 }

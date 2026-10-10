@@ -559,10 +559,10 @@
     function formatEventValue(v) {
       if (v == null) return '—';
       if (typeof v === 'object') {
-        if ('string-value' in v) return v['string-value'];
-        if ('int-value' in v) return String(v['int-value']);
-        if ('float-value' in v) return String(v['float-value']);
-        if ('bool-value' in v) return v['bool-value'] ? 'true' : 'false';
+        if ('StringValue' in v) return v.StringValue;
+        if ('IntValue' in v) return String(v.IntValue);
+        if ('FloatValue' in v) return String(v.FloatValue);
+        if ('BoolValue' in v) return v.BoolValue ? 'true' : 'false';
       }
       if (typeof v === 'boolean') return v ? 'true' : 'false';
       if (typeof v === 'number') return String(v);
@@ -570,9 +570,7 @@
     }
 
     function unwrapResult(data) {
-      let val = data.result_json?.value ?? data;
-      if (val && typeof val === 'object' && 'ok' in val) val = val.ok;
-      return val;
+      return data;
     }
 
     function getTimelinePoints(result) {

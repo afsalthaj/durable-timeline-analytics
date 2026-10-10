@@ -3,5 +3,14 @@ name = "common-lib"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+# Derives `golem_rust::Schema` on the domain types so the WASM component can
+# use them directly as agent parameters and results.
+golem = ["dep:golem-rust"]
+
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+golem-rust = { workspace = true, optional = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

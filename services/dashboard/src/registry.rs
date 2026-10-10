@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use common_lib::TimeLineOp;
-use timeline_dsl::{parse, AggregationFunction, ParsedAggregation, ParsedTimeline};
+use common_lib::{AggregationConfig, EventColumnName, NumberedNode, TimeLineOp};
+use timeline_dsl::{parse, ParsedTimeline};
 
 // ── Newtypes ──
 
@@ -18,23 +18,15 @@ pub struct MetricName(pub String);
 pub struct DslText(pub String);
 
 /// The agent name suffix, e.g. "has-existed-4".
-/// Full agent name is `{session-id}-{metric-name}-{suffix}`.
-#[derive(Clone, Debug, Serialize)]
-pub struct AgentSuffix(pub String);
-
-/// The name of an event column (e.g., "playerStateChange", "cdn").
+/// The full agent name is `{session-id}-{suffix}`.
 #[derive(Clone, Debug, Serialize, Hash, Eq, PartialEq)]
-pub struct EventColumnName(pub String);
-
-/// The name of the column used for group-by aggregation.
-#[derive(Clone, Debug, Serialize)]
-pub struct GroupByColumn(pub String);
+pub struct AgentSuffix(pub String);
 
 /// Human-readable description of what a node computes.
 #[derive(Clone, Debug, Serialize)]
 pub struct NodeDescription(pub String);
 
-/// The operation name in kebab-case (e.g., "duration-where", "has-existed").
+/// The operation of a derived node, e.g. "and" or "equal-to(buffer)".
 #[derive(Clone, Debug, Serialize)]
 pub struct OperationName(pub String);
 
@@ -70,7 +62,7 @@ pub struct LeafRoutingTable {
 /// Aggregation configuration as derived from the DSL.
 #[derive(Clone, Debug, Serialize)]
 pub struct AggregationInfo {
-    pub group_by_column: GroupByColumn,
+    pub group_by_column: EventColumnName,
     pub functions: Vec<AggregationFunctionName>,
 }
 
@@ -92,268 +84,227 @@ pub struct RegisterMetricRequest {
     pub dsl: DslText,
 }
 
+/// A registered metric together with what the feeder needs to run it.
+#[derive(Clone, Debug)]
+pub struct Registration {
+    pub metric: RegisteredMetric,
+    pub timeline: TimeLineOp,
+    pub aggregation: Option<AggregationConfig>,
+}
+
 // ── Registry ──
 
 /// In-memory metric registry. Deduplicates by normalized DSL text.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MetricRegistry {
     inner: Arc<Mutex<RegistryInner>>,
 }
 
-/// Internal storage for a registered metric alongside its parsed form.
-struct StoredMetric {
-    metric: RegisteredMetric,
-    parsed: ParsedTimeline,
-}
-
+#[derive(Default)]
 struct RegistryInner {
-    metrics: Vec<StoredMetric>,
-    /// Normalized DSL text → index into `metrics` for deduplication.
+    registrations: Vec<Registration>,
+    /// Normalized DSL text → index into `registrations`.
     dsl_index: HashMap<String, usize>,
 }
 
 impl MetricRegistry {
     pub fn new() -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(RegistryInner {
-                metrics: Vec::new(),
-                dsl_index: HashMap::new(),
-            })),
-        }
+        Self::default()
     }
 
-    /// Register a metric. Returns the registered metric plus WAVE strings for
-    /// the feeder, or an error.
-    /// If an identical DSL is already registered, returns the existing one.
-    pub fn register(
-        &self,
-        req: &RegisterMetricRequest,
-    ) -> Result<(RegisteredMetric, String, String), String> {
+    /// Register a metric. If an identical DSL is already registered, returns
+    /// the existing registration.
+    pub fn register(&self, req: &RegisterMetricRequest) -> Result<Registration, String> {
         let mut inner = self.inner.lock().map_err(|e| e.to_string())?;
 
         let normalized = normalize_dsl(&req.dsl.0);
-        if let Some(&idx) = inner.dsl_index.get(&normalized) {
-            let existing = &inner.metrics[idx];
-            let graph_wave = crate::wave::timeline_op_to_wave(&existing.parsed.op);
-            let agg_wave = crate::wave::aggregation_to_wave(&existing.parsed.aggregation);
-            return Ok((existing.metric.clone(), graph_wave, agg_wave));
+        if let Some(existing) = inner
+            .dsl_index
+            .get(&normalized)
+            .and_then(|&idx| inner.registrations.get(idx))
+        {
+            return Ok(existing.clone());
         }
 
         let parsed = parse(&req.dsl.0).map_err(|e| e.to_string())?;
+        let registration = compile(req, parsed);
 
-        let mut leaves = Vec::new();
-        let mut derived_nodes = Vec::new();
-        let mut counter: u64 = 0;
-        walk_tree(&parsed.op, &mut counter, &mut leaves, &mut derived_nodes);
+        let idx = inner.registrations.len();
+        inner.dsl_index.insert(normalized, idx);
+        inner.registrations.push(registration.clone());
+        Ok(registration)
+    }
 
-        let mut routes: HashMap<EventColumnName, Vec<AgentSuffix>> = HashMap::new();
-        for leaf in &leaves {
-            for col in &leaf.event_columns {
-                routes
-                    .entry(col.clone())
-                    .or_default()
-                    .push(leaf.agent_suffix.clone());
-            }
+    /// List all registered metrics.
+    pub fn list(&self) -> Result<Vec<RegisteredMetric>, String> {
+        let inner = self.inner.lock().map_err(|e| e.to_string())?;
+        Ok(inner
+            .registrations
+            .iter()
+            .map(|r| r.metric.clone())
+            .collect())
+    }
+}
+
+fn compile(req: &RegisterMetricRequest, parsed: ParsedTimeline) -> Registration {
+    let mut leaves = Vec::new();
+    let mut derived_nodes = Vec::new();
+    for node in parsed.op.numbered_nodes() {
+        let agent_suffix = AgentSuffix(node.suffix());
+        if node.op.is_leaf() {
+            leaves.push(LeafInfo {
+                agent_suffix,
+                event_columns: node.op.leaf_columns().into_iter().cloned().collect(),
+                description: NodeDescription(describe(&node)),
+            });
+        } else {
+            derived_nodes.push(DerivedInfo {
+                agent_suffix,
+                operation: OperationName(operation(node.op)),
+                description: NodeDescription(describe(&node)),
+            });
         }
+    }
 
-        let aggregation = parsed.aggregation.as_ref().map(|a| convert_aggregation(a));
+    let mut routes: HashMap<EventColumnName, Vec<AgentSuffix>> = HashMap::new();
+    for leaf in &leaves {
+        for column in &leaf.event_columns {
+            routes
+                .entry(column.clone())
+                .or_default()
+                .push(leaf.agent_suffix.clone());
+        }
+    }
 
-        let graph_wave = crate::wave::timeline_op_to_wave(&parsed.op);
-        let agg_wave = crate::wave::aggregation_to_wave(&parsed.aggregation);
+    let aggregation = parsed.aggregation.as_ref().map(|config| AggregationInfo {
+        group_by_column: config.group_by_column.clone(),
+        functions: config
+            .functions
+            .iter()
+            .map(|f| AggregationFunctionName(f.to_string()))
+            .collect(),
+    });
 
-        let metric = RegisteredMetric {
+    Registration {
+        metric: RegisteredMetric {
             name: req.name.clone(),
             dsl: req.dsl.clone(),
             leaves,
             derived_nodes,
             routing_table: LeafRoutingTable { routes },
             aggregation,
-        };
-
-        let idx = inner.metrics.len();
-        inner.dsl_index.insert(normalized, idx);
-        inner.metrics.push(StoredMetric {
-            metric: metric.clone(),
-            parsed,
-        });
-
-        Ok((metric, graph_wave, agg_wave))
-    }
-
-    /// List all registered metrics.
-    pub fn list(&self) -> Result<Vec<RegisteredMetric>, String> {
-        let inner = self.inner.lock().map_err(|e| e.to_string())?;
-        Ok(inner.metrics.iter().map(|s| s.metric.clone()).collect())
+        },
+        timeline: parsed.op,
+        aggregation: parsed.aggregation,
     }
 }
 
-// ── Tree walking ──
-
-/// Walk the recursive TimeLineOp tree in pre-order DFS (matching the driver's
-/// numbering scheme) and collect leaf/derived info.
-fn walk_tree(
-    op: &TimeLineOp,
-    counter: &mut u64,
-    leaves: &mut Vec<LeafInfo>,
-    derived: &mut Vec<DerivedInfo>,
-) {
-    *counter += 1;
-    let n = *counter;
-
+fn operation(op: &TimeLineOp) -> String {
     match op {
-        TimeLineOp::TlLatestEventToState(col) => {
-            leaves.push(LeafInfo {
-                agent_suffix: AgentSuffix(format!("latest-event-to-state-{}", n)),
-                event_columns: vec![EventColumnName(col.0.clone())],
-                description: NodeDescription(format!(
-                    "Track the latest value of \"{}\" as state",
-                    col.0
-                )),
-            });
-        }
-        TimeLineOp::TlHasExisted(pred) => {
-            leaves.push(LeafInfo {
-                agent_suffix: AgentSuffix(format!("has-existed-{}", n)),
-                event_columns: vec![predicate_column(pred)],
-                description: NodeDescription(format!("Has {} ever been true?", pred)),
-            });
-        }
-        TimeLineOp::TlHasExistedWithin(pred, dur) => {
-            leaves.push(LeafInfo {
-                agent_suffix: AgentSuffix(format!("has-existed-within-{}", n)),
-                event_columns: vec![predicate_column(pred)],
-                description: NodeDescription(format!(
-                    "Has {} been true within the last {} time units?",
-                    pred, dur
-                )),
-            });
-        }
-        TimeLineOp::EqualTo(child, val) => {
-            derived.push(DerivedInfo {
-                agent_suffix: AgentSuffix(format!("equal-to-{}", n)),
-                operation: OperationName(format!("equal-to({})", val)),
-                description: NodeDescription(format!("Is the child's state equal to {}?", val)),
-            });
-            walk_tree(child, counter, leaves, derived);
-        }
-        TimeLineOp::GreaterThan(child, val) => {
-            derived.push(DerivedInfo {
-                agent_suffix: AgentSuffix(format!("greater-than-{}", n)),
-                operation: OperationName(format!("greater-than({})", val)),
-                description: NodeDescription(format!(
-                    "Is the child's state greater than {}?",
-                    val
-                )),
-            });
-            walk_tree(child, counter, leaves, derived);
-        }
-        TimeLineOp::GreaterThanOrEqual(child, val) => {
-            derived.push(DerivedInfo {
-                agent_suffix: AgentSuffix(format!("greater-than-or-equal-{}", n)),
-                operation: OperationName(format!("greater-than-or-equal({})", val)),
-                description: NodeDescription(format!("Is the child's state ≥ {}?", val)),
-            });
-            walk_tree(child, counter, leaves, derived);
-        }
-        TimeLineOp::LessThan(child, val) => {
-            derived.push(DerivedInfo {
-                agent_suffix: AgentSuffix(format!("less-than-{}", n)),
-                operation: OperationName(format!("less-than({})", val)),
-                description: NodeDescription(format!(
-                    "Is the child's state less than {}?",
-                    val
-                )),
-            });
-            walk_tree(child, counter, leaves, derived);
-        }
-        TimeLineOp::LessThanOrEqual(child, val) => {
-            derived.push(DerivedInfo {
-                agent_suffix: AgentSuffix(format!("less-than-or-equal-{}", n)),
-                operation: OperationName(format!("less-than-or-equal({})", val)),
-                description: NodeDescription(format!("Is the child's state ≤ {}?", val)),
-            });
-            walk_tree(child, counter, leaves, derived);
-        }
-        TimeLineOp::Not(child) => {
-            derived.push(DerivedInfo {
-                agent_suffix: AgentSuffix(format!("not-{}", n)),
-                operation: OperationName("not".to_string()),
-                description: NodeDescription("Negate the child's boolean state".to_string()),
-            });
-            walk_tree(child, counter, leaves, derived);
-        }
-        TimeLineOp::And(left, right) => {
-            derived.push(DerivedInfo {
-                agent_suffix: AgentSuffix(format!("and-{}", n)),
-                operation: OperationName("and".to_string()),
-                description: NodeDescription("Both children must be true".to_string()),
-            });
-            walk_tree(left, counter, leaves, derived);
-            walk_tree(right, counter, leaves, derived);
-        }
-        TimeLineOp::Or(left, right) => {
-            derived.push(DerivedInfo {
-                agent_suffix: AgentSuffix(format!("or-{}", n)),
-                operation: OperationName("or".to_string()),
-                description: NodeDescription("Either child must be true".to_string()),
-            });
-            walk_tree(left, counter, leaves, derived);
-            walk_tree(right, counter, leaves, derived);
-        }
-        TimeLineOp::TlDurationWhere(child) => {
-            derived.push(DerivedInfo {
-                agent_suffix: AgentSuffix(format!("duration-where-{}", n)),
-                operation: OperationName("duration-where".to_string()),
-                description: NodeDescription(
-                    "Cumulative duration where child is true".to_string(),
-                ),
-            });
-            walk_tree(child, counter, leaves, derived);
-        }
-        TimeLineOp::TlDurationInCurState(child) => {
-            derived.push(DerivedInfo {
-                agent_suffix: AgentSuffix(format!("duration-in-cur-state-{}", n)),
-                operation: OperationName("duration-in-cur-state".to_string()),
-                description: NodeDescription(
-                    "Duration in the child's current state".to_string(),
-                ),
-            });
-            walk_tree(child, counter, leaves, derived);
-        }
+        TimeLineOp::Compare { op, value, .. } => format!("{}({value})", op.operation_name()),
+        other => other.operation_name().to_string(),
     }
 }
 
-/// Extract the column name from a predicate.
-fn predicate_column(
-    pred: &common_lib::GolemEventPredicate<common_lib::GolemEventValue>,
-) -> EventColumnName {
-    match pred {
-        common_lib::GolemEventPredicate::Equals(col, _) => EventColumnName(col.0.clone()),
-        common_lib::GolemEventPredicate::GreaterThan(col, _) => EventColumnName(col.0.clone()),
-        common_lib::GolemEventPredicate::LessThan(col, _) => EventColumnName(col.0.clone()),
-        common_lib::GolemEventPredicate::And(left, _) => predicate_column(left),
-        common_lib::GolemEventPredicate::Or(left, _) => predicate_column(left),
-    }
-}
-
-fn convert_aggregation(a: &ParsedAggregation) -> AggregationInfo {
-    AggregationInfo {
-        group_by_column: GroupByColumn(a.group_by.clone()),
-        functions: a
-            .functions
-            .iter()
-            .map(|f| match f {
-                AggregationFunction::Count => AggregationFunctionName("count".to_string()),
-                AggregationFunction::Sum => AggregationFunctionName("sum".to_string()),
-                AggregationFunction::Avg => AggregationFunctionName("avg".to_string()),
-                AggregationFunction::Min => AggregationFunctionName("min".to_string()),
-                AggregationFunction::Max => AggregationFunctionName("max".to_string()),
-            })
-            .collect(),
+fn describe(node: &NumberedNode<'_>) -> String {
+    match node.op {
+        TimeLineOp::TlLatestEventToState(column) => {
+            format!("Track the latest value of \"{column}\" as state")
+        }
+        TimeLineOp::TlHasExisted(predicate) => format!("Has {predicate} ever been true?"),
+        TimeLineOp::TlHasExistedWithin { predicate, within } => {
+            format!("Has {predicate} been true within the last {within} time units?")
+        }
+        TimeLineOp::Compare { op, value, .. } => {
+            let relation = match op {
+                common_lib::CompareOp::EqualTo => "equal to",
+                common_lib::CompareOp::GreaterThan => "greater than",
+                common_lib::CompareOp::GreaterThanOrEqual => "≥",
+                common_lib::CompareOp::LessThan => "less than",
+                common_lib::CompareOp::LessThanOrEqual => "≤",
+            };
+            format!("Is the child's state {relation} {value}?")
+        }
+        TimeLineOp::Not(_) => "Negate the child's boolean state".to_string(),
+        TimeLineOp::And { .. } => "Both children must be true".to_string(),
+        TimeLineOp::Or { .. } => "Either child must be true".to_string(),
+        TimeLineOp::TlDurationWhere(_) => "Cumulative duration where child is true".to_string(),
+        TimeLineOp::TlDurationInCurState(_) => "Duration in the child's current state".to_string(),
     }
 }
 
 /// Normalize DSL whitespace for deduplication.
 fn normalize_dsl(dsl: &str) -> String {
     dsl.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CIRR: &str = r#"duration_where(
+        has_existed(playerStateChange == "play")
+        && !has_existed_within(playerStateChange == "seek", 5)
+        && latest_event_to_state(playerStateChange) == "buffer"
+    ) | aggregate(group_by(cdn), count, sum, avg)"#;
+
+    fn request(name: &str, dsl: &str) -> RegisterMetricRequest {
+        RegisterMetricRequest {
+            name: MetricName(name.to_string()),
+            dsl: DslText(dsl.to_string()),
+        }
+    }
+
+    fn suffixes<'a>(names: impl Iterator<Item = &'a AgentSuffix>) -> Vec<&'a str> {
+        names.map(|s| s.0.as_str()).collect()
+    }
+
+    #[test]
+    fn cirr_compiles_to_driver_agent_names() -> Result<(), String> {
+        let registration = MetricRegistry::new().register(&request("cirr", CIRR))?;
+        let metric = &registration.metric;
+        assert_eq!(
+            suffixes(metric.leaves.iter().map(|l| &l.agent_suffix)),
+            vec![
+                "has-existed-4",
+                "has-existed-within-6",
+                "latest-event-to-state-8"
+            ]
+        );
+        assert_eq!(
+            suffixes(metric.derived_nodes.iter().map(|d| &d.agent_suffix)),
+            vec!["duration-where-1", "and-2", "and-3", "not-5", "equal-to-7"]
+        );
+        let routed = metric
+            .routing_table
+            .routes
+            .get(&EventColumnName::new("playerStateChange"))
+            .map(|r| r.len());
+        assert_eq!(routed, Some(3));
+        assert_eq!(
+            metric
+                .aggregation
+                .as_ref()
+                .map(|a| a.group_by_column.as_str()),
+            Some("cdn")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn identical_dsl_is_deduplicated() -> Result<(), String> {
+        let registry = MetricRegistry::new();
+        registry.register(&request("a", "latest_event_to_state(x) == 1"))?;
+        let again = registry.register(&request("b", "latest_event_to_state(x)   ==\n 1"))?;
+        assert_eq!(again.metric.name, MetricName("a".to_string()));
+        assert_eq!(registry.list()?.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn parse_errors_are_reported() {
+        assert!(MetricRegistry::new()
+            .register(&request("bad", "has_existed("))
+            .is_err());
+    }
 }

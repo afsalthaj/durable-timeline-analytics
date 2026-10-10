@@ -108,7 +108,10 @@ impl<'a> Lexer<'a> {
         loop {
             self.skip_whitespace();
             if self.pos >= self.input.len() {
-                tokens.push(Spanned { token: Token::Eof, offset: self.pos });
+                tokens.push(Spanned {
+                    token: Token::Eof,
+                    offset: self.pos,
+                });
                 return Ok(tokens);
             }
             tokens.push(self.next_token()?);
@@ -138,56 +141,113 @@ impl<'a> Lexer<'a> {
     fn next_token(&mut self) -> Result<Spanned, LexError> {
         let offset = self.pos;
 
-        let byte = self.peek().ok_or(LexError { offset, message: "unexpected end of input".to_string() })?;
+        let byte = self.peek().ok_or(LexError {
+            offset,
+            message: "unexpected end of input".to_string(),
+        })?;
         match byte {
             b'"' => self.read_string(offset),
-            b'(' => { self.advance(); Ok(Spanned { token: Token::LParen, offset }) }
-            b')' => { self.advance(); Ok(Spanned { token: Token::RParen, offset }) }
-            b',' => { self.advance(); Ok(Spanned { token: Token::Comma, offset }) }
-            b'!' => { self.advance(); Ok(Spanned { token: Token::Bang, offset }) }
+            b'(' => {
+                self.advance();
+                Ok(Spanned {
+                    token: Token::LParen,
+                    offset,
+                })
+            }
+            b')' => {
+                self.advance();
+                Ok(Spanned {
+                    token: Token::RParen,
+                    offset,
+                })
+            }
+            b',' => {
+                self.advance();
+                Ok(Spanned {
+                    token: Token::Comma,
+                    offset,
+                })
+            }
+            b'!' => {
+                self.advance();
+                Ok(Spanned {
+                    token: Token::Bang,
+                    offset,
+                })
+            }
             b'=' => {
                 self.advance();
                 if self.peek() == Some(b'=') {
                     self.advance();
-                    Ok(Spanned { token: Token::EqualEqual, offset })
+                    Ok(Spanned {
+                        token: Token::EqualEqual,
+                        offset,
+                    })
                 } else {
-                    Ok(Spanned { token: Token::Eq, offset })
+                    Ok(Spanned {
+                        token: Token::Eq,
+                        offset,
+                    })
                 }
             }
             b'>' => {
                 self.advance();
                 if self.peek() == Some(b'=') {
                     self.advance();
-                    Ok(Spanned { token: Token::GreaterEqual, offset })
+                    Ok(Spanned {
+                        token: Token::GreaterEqual,
+                        offset,
+                    })
                 } else {
-                    Ok(Spanned { token: Token::Greater, offset })
+                    Ok(Spanned {
+                        token: Token::Greater,
+                        offset,
+                    })
                 }
             }
             b'<' => {
                 self.advance();
                 if self.peek() == Some(b'=') {
                     self.advance();
-                    Ok(Spanned { token: Token::LessEqual, offset })
+                    Ok(Spanned {
+                        token: Token::LessEqual,
+                        offset,
+                    })
                 } else {
-                    Ok(Spanned { token: Token::Less, offset })
+                    Ok(Spanned {
+                        token: Token::Less,
+                        offset,
+                    })
                 }
             }
             b'&' => {
                 self.advance();
                 if self.peek() == Some(b'&') {
                     self.advance();
-                    Ok(Spanned { token: Token::AmpAmp, offset })
+                    Ok(Spanned {
+                        token: Token::AmpAmp,
+                        offset,
+                    })
                 } else {
-                    Err(LexError { offset, message: "expected '&&'".into() })
+                    Err(LexError {
+                        offset,
+                        message: "expected '&&'".into(),
+                    })
                 }
             }
             b'|' => {
                 self.advance();
                 if self.peek() == Some(b'|') {
                     self.advance();
-                    Ok(Spanned { token: Token::PipePipe, offset })
+                    Ok(Spanned {
+                        token: Token::PipePipe,
+                        offset,
+                    })
                 } else {
-                    Ok(Spanned { token: Token::Pipe, offset })
+                    Ok(Spanned {
+                        token: Token::Pipe,
+                        offset,
+                    })
                 }
             }
             b if b.is_ascii_digit() => self.read_number(offset),
@@ -206,11 +266,17 @@ impl<'a> Lexer<'a> {
             self.pos += 1;
         }
         if self.pos >= self.input.len() {
-            return Err(LexError { offset, message: "unterminated string".into() });
+            return Err(LexError {
+                offset,
+                message: "unterminated string".into(),
+            });
         }
         let s = String::from_utf8_lossy(&self.input[start..self.pos]).into_owned();
         self.advance(); // closing quote
-        Ok(Spanned { token: Token::StringLit(s), offset })
+        Ok(Spanned {
+            token: Token::StringLit(s),
+            offset,
+        })
     }
 
     fn read_number(&mut self, offset: usize) -> Result<Spanned, LexError> {
@@ -223,21 +289,31 @@ impl<'a> Lexer<'a> {
             while self.pos < self.input.len() && self.input[self.pos].is_ascii_digit() {
                 self.pos += 1;
             }
-            let s = std::str::from_utf8(&self.input[start..self.pos])
-                .map_err(|_| LexError { offset, message: "invalid UTF-8".to_string() })?;
+            let s = std::str::from_utf8(&self.input[start..self.pos]).map_err(|_| LexError {
+                offset,
+                message: "invalid UTF-8".to_string(),
+            })?;
             let val: f64 = s.parse().map_err(|_| LexError {
                 offset,
                 message: format!("invalid float '{}'", s),
             })?;
-            Ok(Spanned { token: Token::FloatLit(val), offset })
+            Ok(Spanned {
+                token: Token::FloatLit(val),
+                offset,
+            })
         } else {
-            let s = std::str::from_utf8(&self.input[start..self.pos])
-                .map_err(|_| LexError { offset, message: "invalid UTF-8".to_string() })?;
+            let s = std::str::from_utf8(&self.input[start..self.pos]).map_err(|_| LexError {
+                offset,
+                message: "invalid UTF-8".to_string(),
+            })?;
             let val: i64 = s.parse().map_err(|_| LexError {
                 offset,
                 message: format!("invalid integer '{}'", s),
             })?;
-            Ok(Spanned { token: Token::IntLit(val), offset })
+            Ok(Spanned {
+                token: Token::IntLit(val),
+                offset,
+            })
         }
     }
 
@@ -246,8 +322,10 @@ impl<'a> Lexer<'a> {
         while self.pos < self.input.len() && is_ident_cont(self.input[self.pos]) {
             self.pos += 1;
         }
-        let word = std::str::from_utf8(&self.input[start..self.pos])
-            .map_err(|_| LexError { offset, message: "invalid UTF-8".to_string() })?;
+        let word = std::str::from_utf8(&self.input[start..self.pos]).map_err(|_| LexError {
+            offset,
+            message: "invalid UTF-8".to_string(),
+        })?;
         let token = match word {
             "latest_event_to_state" => Token::LatestEventToState,
             "has_existed" => Token::HasExisted,

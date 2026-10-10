@@ -4,58 +4,52 @@ default_to_workspace = false
 [tasks.build]
 description = "Build the WASM component"
 command = "golem"
-args = ["build"]
+args = ["build", "--yes"]
 
 [tasks.check]
-description = "Check all crates compile"
+description = "Check all crates compile, including the component for wasm32-wasip2"
+script_runner = "@shell"
+script = '''
+set -e
+cargo check --workspace --all-targets
+cargo check -p timeline_core --target wasm32-wasip2
+'''
+
+[tasks.unit-test]
+description = "Run unit tests (no Golem server needed)"
 command = "cargo"
-args = ["check", "--workspace"]
+args = ["test", "--workspace"]
+
+[tasks.smoke]
+description = "Run the smoke tests against a fresh local Golem server"
+command = "scripts/integration.sh"
+args = ["smoke"]
+
+[tasks.propagation]
+description = "Run the push-cascade tests against a fresh local Golem server"
+command = "scripts/integration.sh"
+args = ["propagation"]
+
+[tasks.aggregation]
+description = "Run the cross-session aggregation tests against a fresh local Golem server"
+command = "scripts/integration.sh"
+args = ["aggregation"]
+
+[tasks.kafka-test]
+description = "Run the Kafka pipeline test (requires Docker)"
+command = "scripts/integration.sh"
+args = ["--kafka", "kafka"]
+
+[tasks.integration]
+description = "Run all Golem integration tests except Kafka"
+command = "scripts/integration.sh"
+args = ["smoke", "propagation", "aggregation"]
 
 [tasks.test]
 clear = true
 description = "Run all integration tests (starts/stops Golem + Kafka, requires Docker)"
-script_runner = "@shell"
-script = '''
-set -e
-cleanup() {
-    echo "Stopping Golem..."
-    pkill -f "golem-server" 2>/dev/null || true
-    pkill -f "golem server run" 2>/dev/null || true
-    echo "Stopping Kafka..."
-    docker compose -f test/integration-harness/docker/compose.yml down -v 2>/dev/null || true
-    echo "Cleanup done."
-}
-trap cleanup EXIT
-
-echo "==> Starting Golem server..."
-pkill -f "golem-server" 2>/dev/null || true
-pkill -f "golem server run" 2>/dev/null || true
-sleep 1
-golem server run --clean > /dev/null 2>&1 &
-for i in $(seq 1 60); do
-    nc -z 127.0.0.1 9881 2>/dev/null && break
-    sleep 1
-done
-nc -z 127.0.0.1 9881 2>/dev/null || { echo "ERROR: Golem server did not start"; exit 1; }
-echo "Golem server ready."
-
-echo "==> Deploying component..."
-golem deploy --yes
-
-echo "==> Starting Kafka..."
-docker compose -f test/integration-harness/docker/compose.yml up -d
-for i in $(seq 1 30); do
-    nc -z 127.0.0.1 9092 2>/dev/null && break
-    sleep 1
-done
-nc -z 127.0.0.1 9092 2>/dev/null || { echo "ERROR: Kafka did not start"; exit 1; }
-echo "Kafka ready."
-
-echo "==> Running tests..."
-cargo test -p integration-harness -- --nocapture --ignored --test-threads=1
-
-echo "==> All tests passed!"
-'''
+command = "scripts/integration.sh"
+args = ["--kafka", "smoke", "propagation", "aggregation", "kafka"]
 
 [tasks.demo]
 clear = true
@@ -63,15 +57,15 @@ description = "Run a CIRR demo with aggregation across 3 CDNs and open the dashb
 script_runner = "@shell"
 script = '''
 set -e
+COMPOSE_FILE=test/integration-harness/docker/compose.yml
 cleanup() {
     echo ""
     echo "Stopping dashboard..."
     [ -n "$DASH_PID" ] && kill "$DASH_PID" 2>/dev/null || true
     echo "Stopping Golem..."
-    pkill -f "golem-server" 2>/dev/null || true
-    pkill -f "golem server run" 2>/dev/null || true
+    [ -n "$GOLEM_PID" ] && kill "$GOLEM_PID" 2>/dev/null || true
     echo "Stopping Kafka..."
-    docker compose -f test/integration-harness/docker/compose.yml down -v 2>/dev/null || true
+    docker compose -f "$COMPOSE_FILE" down -v 2>/dev/null || true
     echo "Cleanup done."
 }
 trap cleanup EXIT
@@ -89,11 +83,10 @@ echo ""
 
 # --- Start infrastructure ---
 echo "==> Starting Golem server..."
-pkill -f "golem-server" 2>/dev/null || true
-pkill -f "golem server run" 2>/dev/null || true
-sleep 1
-golem server run --clean > /dev/null 2>&1 &
-for i in $(seq 1 60); do
+mkdir -p golem-temp
+golem server run --clean --yes > golem-temp/server.log 2>&1 &
+GOLEM_PID=$!
+for i in $(seq 1 120); do
     nc -z 127.0.0.1 9881 2>/dev/null && break
     sleep 1
 done
@@ -101,13 +94,13 @@ nc -z 127.0.0.1 9881 2>/dev/null || { echo "ERROR: Golem server did not start"; 
 echo "    Golem server ready."
 
 echo "==> Building and deploying component..."
-golem build
-golem deploy --yes
+golem build --yes
+golem deploy --yes || { sleep 5; golem deploy --yes; }
 echo "    Component deployed."
 
 echo "==> Starting Kafka..."
-docker compose -f test/integration-harness/docker/compose.yml up -d
-for i in $(seq 1 30); do
+docker compose -f "$COMPOSE_FILE" up -d
+for i in $(seq 1 60); do
     nc -z 127.0.0.1 9092 2>/dev/null && break
     sleep 1
 done

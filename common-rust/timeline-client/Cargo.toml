@@ -1,0 +1,10 @@
+[package]
+name = "timeline-client"
+version = "0.1.0"
+edition = "2021"
+description = "Native client for the timeline agents, driving the Golem CLI"
+
+[dependencies]
+common-lib = { path = "../common-lib" }
+serde = { workspace = true }
+serde_json = { workspace = true }

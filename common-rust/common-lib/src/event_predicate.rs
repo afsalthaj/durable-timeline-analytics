@@ -1,123 +1,193 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
-use std::fmt::{Debug, Display};
+use std::fmt::{self, Display};
 
-use crate::golem_event::{GolemEvent, GolemEventValue};
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct EventColumnName(pub String);
+use crate::event::{Event, EventColumnName, EventValue};
 
-impl EventColumnName {
-    pub fn equal_to<T: Debug + Clone>(self, value: EventColumnValue<T>) -> GolemEventPredicate<T> {
-        GolemEventPredicate::Equals(self, value)
+/// A condition evaluated against a single event.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "golem",
+    derive(
+        golem_rust::Schema,
+        golem_rust::IntoWire,
+        golem_rust::FromWire,
+        golem_rust::WireSchema
+    )
+)]
+pub enum EventPredicate {
+    Equals {
+        column: EventColumnName,
+        value: EventValue,
+    },
+    GreaterThan {
+        column: EventColumnName,
+        value: EventValue,
+    },
+    LessThan {
+        column: EventColumnName,
+        value: EventValue,
+    },
+    And {
+        left: Box<EventPredicate>,
+        right: Box<EventPredicate>,
+    },
+    Or {
+        left: Box<EventPredicate>,
+        right: Box<EventPredicate>,
+    },
+}
+
+impl EventPredicate {
+    pub fn equals(column: impl Into<String>, value: EventValue) -> Self {
+        EventPredicate::Equals {
+            column: EventColumnName::new(column),
+            value,
+        }
     }
 
-    pub fn greater_than<T: Debug + Clone>(
-        self,
-        value: EventColumnValue<T>,
-    ) -> GolemEventPredicate<T> {
-        GolemEventPredicate::GreaterThan(self, value)
+    pub fn greater_than(column: impl Into<String>, value: EventValue) -> Self {
+        EventPredicate::GreaterThan {
+            column: EventColumnName::new(column),
+            value,
+        }
     }
 
-    pub fn less_than<T: Debug + Clone>(self, value: EventColumnValue<T>) -> GolemEventPredicate<T> {
-        GolemEventPredicate::LessThan(self, value)
+    pub fn less_than(column: impl Into<String>, value: EventValue) -> Self {
+        EventPredicate::LessThan {
+            column: EventColumnName::new(column),
+            value,
+        }
     }
 
-    pub fn col<A: AsRef<str>>(event_column_name: A) -> EventColumnName {
-        EventColumnName(event_column_name.as_ref().to_string())
+    pub fn and(self, other: EventPredicate) -> Self {
+        EventPredicate::And {
+            left: Box::new(self),
+            right: Box::new(other),
+        }
     }
-}
 
-impl Display for EventColumnName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+    pub fn or(self, other: EventPredicate) -> Self {
+        EventPredicate::Or {
+            left: Box::new(self),
+            right: Box::new(other),
+        }
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct EventColumnValue<T: Debug + Clone>(pub T);
-
-impl<T: Display + Debug + Clone> Display for EventColumnValue<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl<T: Debug + Clone> From<T> for EventColumnValue<T> {
-    fn from(value: T) -> Self {
-        EventColumnValue(value)
-    }
-}
-
-pub fn string(value: &str) -> EventColumnValue<GolemEventValue> {
-    EventColumnValue(GolemEventValue::StringValue(value.to_string()))
-}
-
-pub fn int(value: i64) -> EventColumnValue<GolemEventValue> {
-    EventColumnValue(GolemEventValue::IntValue(value))
-}
-
-pub fn float(value: f64) -> EventColumnValue<GolemEventValue> {
-    EventColumnValue(GolemEventValue::FloatValue(value))
-}
-
-pub fn boolean(value: bool) -> EventColumnValue<GolemEventValue> {
-    EventColumnValue(GolemEventValue::BoolValue(value))
-}
-
-pub fn col(column_name: &str) -> EventColumnName {
-    EventColumnName(column_name.to_string())
-}
-
-#[derive(Clone, Debug)]
-pub enum GolemEventPredicate<T: Clone + Debug> {
-    Equals(EventColumnName, EventColumnValue<T>),
-    GreaterThan(EventColumnName, EventColumnValue<T>),
-    LessThan(EventColumnName, EventColumnValue<T>),
-    And(Box<GolemEventPredicate<T>>, Box<GolemEventPredicate<T>>),
-    Or(Box<GolemEventPredicate<T>>, Box<GolemEventPredicate<T>>),
-}
-
-impl Display for GolemEventPredicate<GolemEventValue> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    pub fn evaluate(&self, event: &Event) -> bool {
         match self {
-            GolemEventPredicate::Equals(column, value) => write!(f, "{} == {}", column.0, value),
-            GolemEventPredicate::GreaterThan(column, value) => {
-                write!(f, "{} > {}", column.0, value)
+            EventPredicate::Equals { column, value } => {
+                event.value_of(column).is_some_and(|v| v == value)
             }
-            GolemEventPredicate::LessThan(column, value) => write!(f, "{} < {}", column.0, value),
-            GolemEventPredicate::And(left, right) => write!(f, "{} && {}", left, right),
-            GolemEventPredicate::Or(left, right) => write!(f, "{} || {}", left, right),
+            EventPredicate::GreaterThan { column, value } => {
+                event.value_of(column).is_some_and(|v| v > value)
+            }
+            EventPredicate::LessThan { column, value } => {
+                event.value_of(column).is_some_and(|v| v < value)
+            }
+            EventPredicate::And { left, right } => left.evaluate(event) && right.evaluate(event),
+            EventPredicate::Or { left, right } => left.evaluate(event) || right.evaluate(event),
+        }
+    }
+
+    /// Every event column this predicate reads, in first-seen order.
+    pub fn columns(&self) -> Vec<&EventColumnName> {
+        let mut columns = Vec::new();
+        self.collect_columns(&mut columns);
+        columns
+    }
+
+    fn collect_columns<'a>(&'a self, columns: &mut Vec<&'a EventColumnName>) {
+        match self {
+            EventPredicate::Equals { column, .. }
+            | EventPredicate::GreaterThan { column, .. }
+            | EventPredicate::LessThan { column, .. } => {
+                if !columns.contains(&column) {
+                    columns.push(column);
+                }
+            }
+            EventPredicate::And { left, right } | EventPredicate::Or { left, right } => {
+                left.collect_columns(columns);
+                right.collect_columns(columns);
+            }
         }
     }
 }
 
-impl<T: PartialEq + PartialOrd + Clone + Debug> GolemEventPredicate<T> {
-    pub fn evaluate(&self, event: &GolemEvent<T>) -> bool {
+impl Display for EventPredicate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            GolemEventPredicate::Equals(event_column_name, event_value) => event
-                .event
-                .get(event_column_name)
-                .map_or(false, |v| v == &event_value.0),
-
-            GolemEventPredicate::GreaterThan(event_column_name, event_value) => event
-                .event
-                .get(event_column_name)
-                .map_or(false, |v| v > &event_value.0),
-
-            GolemEventPredicate::LessThan(event_column_name, event_value) => event
-                .event
-                .get(event_column_name)
-                .map_or(false, |v| v < &event_value.0),
-            GolemEventPredicate::And(left, right) => left.evaluate(event) && right.evaluate(event),
-            GolemEventPredicate::Or(left, right) => left.evaluate(event) || right.evaluate(event),
+            EventPredicate::Equals { column, value } => write!(f, "{column} == {value}"),
+            EventPredicate::GreaterThan { column, value } => write!(f, "{column} > {value}"),
+            EventPredicate::LessThan { column, value } => write!(f, "{column} < {value}"),
+            EventPredicate::And { left, right } => write!(f, "{left} && {right}"),
+            EventPredicate::Or { left, right } => write!(f, "{left} || {right}"),
         }
     }
+}
 
-    pub fn and(self, other: GolemEventPredicate<T>) -> GolemEventPredicate<T> {
-        GolemEventPredicate::And(Box::new(self), Box::new(other))
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event::EventField;
+
+    fn event_with(fields: Vec<EventField>) -> Event {
+        Event { time: 1, fields }
     }
 
-    pub fn or(self, other: GolemEventPredicate<T>) -> GolemEventPredicate<T> {
-        GolemEventPredicate::Or(Box::new(self), Box::new(other))
+    #[test]
+    fn equals_matches_only_same_value() {
+        let predicate = EventPredicate::equals("status", EventValue::StringValue("play".into()));
+        assert!(predicate.evaluate(&event_with(vec![EventField::new(
+            "status",
+            EventValue::StringValue("play".into())
+        )])));
+        assert!(!predicate.evaluate(&event_with(vec![EventField::new(
+            "status",
+            EventValue::StringValue("pause".into())
+        )])));
+    }
+
+    #[test]
+    fn missing_column_never_matches() {
+        let predicate = EventPredicate::greater_than("score", EventValue::IntValue(1));
+        assert!(!predicate.evaluate(&event_with(vec![])));
+    }
+
+    #[test]
+    fn ordering_predicates() {
+        let event = event_with(vec![EventField::new("score", EventValue::IntValue(10))]);
+        assert!(EventPredicate::greater_than("score", EventValue::IntValue(5)).evaluate(&event));
+        assert!(!EventPredicate::greater_than("score", EventValue::IntValue(10)).evaluate(&event));
+        assert!(EventPredicate::less_than("score", EventValue::IntValue(11)).evaluate(&event));
+    }
+
+    #[test]
+    fn compound_predicates() {
+        let event = event_with(vec![
+            EventField::new("a", EventValue::IntValue(1)),
+            EventField::new("b", EventValue::IntValue(2)),
+        ]);
+        let a_is_1 = EventPredicate::equals("a", EventValue::IntValue(1));
+        let b_is_3 = EventPredicate::equals("b", EventValue::IntValue(3));
+        assert!(!a_is_1.clone().and(b_is_3.clone()).evaluate(&event));
+        assert!(a_is_1.or(b_is_3).evaluate(&event));
+    }
+
+    #[test]
+    fn columns_are_deduplicated() {
+        let predicate = EventPredicate::equals("a", EventValue::IntValue(1))
+            .or(EventPredicate::equals("b", EventValue::IntValue(2)))
+            .and(EventPredicate::less_than("a", EventValue::IntValue(5)));
+        let names: Vec<&str> = predicate.columns().iter().map(|c| c.as_str()).collect();
+        assert_eq!(names, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn display_is_dsl_like() {
+        let predicate = EventPredicate::equals("status", EventValue::StringValue("on".into()))
+            .and(EventPredicate::less_than("x", EventValue::IntValue(3)));
+        assert_eq!(predicate.to_string(), "status == on && x < 3");
     }
 }

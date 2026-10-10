@@ -2,37 +2,20 @@
 use std::fmt;
 
 use common_lib::{
-    EventColumnName, EventColumnValue, GolemEventPredicate, GolemEventValue, TimeLineOp,
+    AggregationConfig, AggregationFunction, CompareOp, EventColumnName, EventPredicate, EventValue,
+    TimeLineOp,
 };
 
-use crate::lexer::{Lexer, LexError, Spanned, Token};
+use crate::lexer::{LexError, Lexer, Spanned, Token};
 
-// ── Public types ──
-
+/// A parsed DSL query: the timeline expression plus optional aggregation.
 #[derive(Clone, Debug, PartialEq)]
-pub enum AggregationFunction {
-    Count,
-    Sum,
-    Avg,
-    Min,
-    Max,
-}
-
-#[derive(Clone, Debug)]
-pub struct ParsedAggregation {
-    pub group_by: String,
-    pub functions: Vec<AggregationFunction>,
-}
-
-#[derive(Clone, Debug)]
 pub struct ParsedTimeline {
     pub op: TimeLineOp,
-    pub aggregation: Option<ParsedAggregation>,
+    pub aggregation: Option<AggregationConfig>,
 }
 
-// ── Errors ──
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ParseError {
     pub offset: usize,
     pub message: String,
@@ -55,8 +38,6 @@ impl From<LexError> for ParseError {
     }
 }
 
-// ── Parser ──
-
 /// Parse a timeline DSL query into a `ParsedTimeline`.
 ///
 /// Grammar (simplified):
@@ -68,7 +49,7 @@ impl From<LexError> for ParseError {
 /// unary       = "!" unary | postfix
 /// postfix     = primary (cmp_op value)?
 /// primary     = "(" expr ")"
-///             | "latest_event_to_state" "(" string ")"
+///             | "latest_event_to_state" "(" column ")"
 ///             | "has_existed" "(" predicate ")"
 ///             | "has_existed_within" "(" predicate "," int ")"
 ///             | "duration_where" "(" expr ")"
@@ -77,14 +58,14 @@ impl From<LexError> for ParseError {
 /// pred_op     = "==" | ">" | "<"
 /// cmp_op      = "==" | ">" | ">=" | "<" | "<="
 /// value       = string | int | float | bool
-/// aggregate   = "aggregate" "(" "group_by" "(" ident ")" "," agg_fn ("," agg_fn)* ")"
+/// aggregate   = "aggregate" "(" "group_by" "(" column ")" "," agg_fn ("," agg_fn)* ")"
 /// agg_fn      = "count" | "sum" | "avg" | "min" | "max"
 /// ```
 pub fn parse(input: &str) -> Result<ParsedTimeline, ParseError> {
     let tokens = Lexer::new(input).tokenize()?;
-    let mut p = Parser::new(tokens);
-    let result = p.parse_query()?;
-    p.expect(Token::Eof)?;
+    let mut parser = Parser::new(tokens)?;
+    let result = parser.parse_query()?;
+    parser.expect(Token::Eof)?;
     Ok(result)
 }
 
@@ -94,28 +75,29 @@ struct Parser {
 }
 
 impl Parser {
-    fn new(tokens: Vec<Spanned>) -> Self {
-        Self { tokens, pos: 0 }
+    fn new(tokens: Vec<Spanned>) -> Result<Self, ParseError> {
+        match tokens.last() {
+            Some(last) if last.token == Token::Eof => Ok(Self { tokens, pos: 0 }),
+            _ => Err(ParseError {
+                offset: 0,
+                message: "token stream must end with EOF".to_string(),
+            }),
+        }
     }
 
     fn current(&self) -> &Spanned {
-        &self.tokens[self.pos]
+        // `new` guarantees a trailing EOF and `advance` never moves past it.
+        &self.tokens[self.pos.min(self.tokens.len() - 1)]
     }
 
     fn peek(&self) -> &Token {
         &self.current().token
     }
 
-    fn offset(&self) -> usize {
-        self.current().offset
-    }
-
-    fn advance(&mut self) -> &Token {
-        let tok = &self.tokens[self.pos].token;
+    fn advance(&mut self) {
         if self.pos + 1 < self.tokens.len() {
             self.pos += 1;
         }
-        tok
     }
 
     fn expect(&mut self, expected: Token) -> Result<(), ParseError> {
@@ -129,12 +111,10 @@ impl Parser {
 
     fn error(&self, message: String) -> ParseError {
         ParseError {
-            offset: self.offset(),
+            offset: self.current().offset,
             message,
         }
     }
-
-    // ── Grammar rules ──
 
     fn parse_query(&mut self) -> Result<ParsedTimeline, ParseError> {
         let op = self.parse_expr()?;
@@ -156,7 +136,7 @@ impl Parser {
         while *self.peek() == Token::PipePipe {
             self.advance();
             let right = self.parse_and()?;
-            left = TimeLineOp::Or(Box::new(left), Box::new(right));
+            left = TimeLineOp::or(left, right);
         }
         Ok(left)
     }
@@ -166,7 +146,7 @@ impl Parser {
         while *self.peek() == Token::AmpAmp {
             self.advance();
             let right = self.parse_unary()?;
-            left = TimeLineOp::And(Box::new(left), Box::new(right));
+            left = TimeLineOp::and(left, right);
         }
         Ok(left)
     }
@@ -175,45 +155,28 @@ impl Parser {
         if *self.peek() == Token::Bang {
             self.advance();
             let inner = self.parse_unary()?;
-            return Ok(TimeLineOp::Not(Box::new(inner)));
+            return Ok(!inner);
         }
         self.parse_postfix()
     }
 
     fn parse_postfix(&mut self) -> Result<TimeLineOp, ParseError> {
         let expr = self.parse_primary()?;
-        match self.peek() {
-            Token::EqualEqual => {
-                self.advance();
-                let val = self.parse_value()?;
-                Ok(TimeLineOp::EqualTo(Box::new(expr), val))
-            }
-            Token::Greater => {
-                self.advance();
-                let val = self.parse_value()?;
-                Ok(TimeLineOp::GreaterThan(Box::new(expr), val))
-            }
-            Token::GreaterEqual => {
-                self.advance();
-                let val = self.parse_value()?;
-                Ok(TimeLineOp::GreaterThanOrEqual(Box::new(expr), val))
-            }
-            Token::Less => {
-                self.advance();
-                let val = self.parse_value()?;
-                Ok(TimeLineOp::LessThan(Box::new(expr), val))
-            }
-            Token::LessEqual => {
-                self.advance();
-                let val = self.parse_value()?;
-                Ok(TimeLineOp::LessThanOrEqual(Box::new(expr), val))
-            }
-            _ => Ok(expr),
-        }
+        let compare_op = match self.peek() {
+            Token::EqualEqual => CompareOp::EqualTo,
+            Token::Greater => CompareOp::GreaterThan,
+            Token::GreaterEqual => CompareOp::GreaterThanOrEqual,
+            Token::Less => CompareOp::LessThan,
+            Token::LessEqual => CompareOp::LessThanOrEqual,
+            _ => return Ok(expr),
+        };
+        self.advance();
+        let value = self.parse_value()?;
+        Ok(TimeLineOp::compare(compare_op, expr, value))
     }
 
     fn parse_primary(&mut self) -> Result<TimeLineOp, ParseError> {
-        match self.peek().clone() {
+        match self.peek() {
             Token::LParen => {
                 self.advance();
                 let expr = self.parse_expr()?;
@@ -223,131 +186,112 @@ impl Parser {
             Token::LatestEventToState => {
                 self.advance();
                 self.expect(Token::LParen)?;
-                let col = self.parse_column_name()?;
+                let column = self.parse_column_name()?;
                 self.expect(Token::RParen)?;
-                Ok(TimeLineOp::TlLatestEventToState(EventColumnName(col)))
+                Ok(TimeLineOp::TlLatestEventToState(column))
             }
             Token::HasExisted => {
                 self.advance();
                 self.expect(Token::LParen)?;
-                let pred = self.parse_predicate()?;
+                let predicate = self.parse_predicate()?;
                 self.expect(Token::RParen)?;
-                Ok(TimeLineOp::TlHasExisted(pred))
+                Ok(TimeLineOp::TlHasExisted(predicate))
             }
             Token::HasExistedWithin => {
                 self.advance();
                 self.expect(Token::LParen)?;
-                let pred = self.parse_predicate()?;
+                let predicate = self.parse_predicate()?;
                 self.expect(Token::Comma)?;
-                let duration = self.parse_int_lit()?;
+                let within = self.parse_duration()?;
                 self.expect(Token::RParen)?;
-                Ok(TimeLineOp::TlHasExistedWithin(pred, duration as u64))
+                Ok(TimeLineOp::TlHasExistedWithin { predicate, within })
             }
             Token::DurationWhere => {
                 self.advance();
                 self.expect(Token::LParen)?;
                 let inner = self.parse_expr()?;
                 self.expect(Token::RParen)?;
-                Ok(TimeLineOp::TlDurationWhere(Box::new(inner)))
+                Ok(TimeLineOp::duration_where(inner))
             }
             Token::DurationInCurState => {
                 self.advance();
                 self.expect(Token::LParen)?;
                 let inner = self.parse_expr()?;
                 self.expect(Token::RParen)?;
-                Ok(TimeLineOp::TlDurationInCurState(Box::new(inner)))
+                Ok(TimeLineOp::duration_in_cur_state(inner))
             }
-            _ => Err(self.error(format!("unexpected token '{}'", self.peek()))),
+            other => Err(self.error(format!("unexpected token '{other}'"))),
         }
     }
 
-    fn parse_predicate(&mut self) -> Result<GolemEventPredicate<GolemEventValue>, ParseError> {
-        let col_name = self.parse_ident()?;
-        let col = EventColumnName(col_name);
-
-        match self.peek().clone() {
-            Token::EqualEqual => {
-                self.advance();
-                let val = EventColumnValue(self.parse_value()?);
-                Ok(GolemEventPredicate::Equals(col, val))
+    fn parse_predicate(&mut self) -> Result<EventPredicate, ParseError> {
+        let column = EventColumnName(self.parse_ident()?);
+        let make: fn(EventColumnName, EventValue) -> EventPredicate = match self.peek() {
+            Token::EqualEqual => |column, value| EventPredicate::Equals { column, value },
+            Token::Greater => |column, value| EventPredicate::GreaterThan { column, value },
+            Token::Less => |column, value| EventPredicate::LessThan { column, value },
+            other => {
+                return Err(self.error(format!(
+                    "expected predicate operator ('==', '>', '<'), found '{other}'"
+                )))
             }
-            Token::Greater => {
-                self.advance();
-                let val = EventColumnValue(self.parse_value()?);
-                Ok(GolemEventPredicate::GreaterThan(col, val))
-            }
-            Token::Less => {
-                self.advance();
-                let val = EventColumnValue(self.parse_value()?);
-                Ok(GolemEventPredicate::LessThan(col, val))
-            }
-            _ => Err(self.error(format!(
-                "expected predicate operator ('==', '>', '<'), found '{}'",
-                self.peek()
-            ))),
-        }
+        };
+        self.advance();
+        let value = self.parse_value()?;
+        Ok(make(column, value))
     }
 
-    fn parse_value(&mut self) -> Result<GolemEventValue, ParseError> {
-        match self.peek().clone() {
-            Token::StringLit(s) => {
-                self.advance();
-                Ok(GolemEventValue::StringValue(s))
-            }
+    fn parse_value(&mut self) -> Result<EventValue, ParseError> {
+        let value = match self.peek() {
+            Token::StringLit(s) => EventValue::StringValue(s.clone()),
+            Token::IntLit(n) => EventValue::IntValue(*n),
+            Token::FloatLit(f) => EventValue::FloatValue(*f),
+            Token::True => EventValue::BoolValue(true),
+            Token::False => EventValue::BoolValue(false),
+            other => return Err(self.error(format!("expected value, found '{other}'"))),
+        };
+        self.advance();
+        Ok(value)
+    }
+
+    fn parse_column_name(&mut self) -> Result<EventColumnName, ParseError> {
+        let name = match self.peek() {
+            Token::Ident(s) | Token::StringLit(s) => s.clone(),
+            other => return Err(self.error(format!("expected column name, found '{other}'"))),
+        };
+        self.advance();
+        Ok(EventColumnName(name))
+    }
+
+    fn parse_duration(&mut self) -> Result<u64, ParseError> {
+        match self.peek() {
             Token::IntLit(n) => {
+                let within = u64::try_from(*n)
+                    .map_err(|_| self.error(format!("duration must be non-negative, found {n}")))?;
                 self.advance();
-                Ok(GolemEventValue::IntValue(n))
+                Ok(within)
             }
-            Token::FloatLit(f) => {
-                self.advance();
-                Ok(GolemEventValue::FloatValue(f))
-            }
-            Token::True => {
-                self.advance();
-                Ok(GolemEventValue::BoolValue(true))
-            }
-            Token::False => {
-                self.advance();
-                Ok(GolemEventValue::BoolValue(false))
-            }
-            _ => Err(self.error(format!("expected value, found '{}'", self.peek()))),
-        }
-    }
-
-    fn parse_column_name(&mut self) -> Result<String, ParseError> {
-        match self.peek().clone() {
-            Token::Ident(s) => { self.advance(); Ok(s) }
-            Token::StringLit(s) => { self.advance(); Ok(s) }
-            _ => Err(self.error(format!("expected column name, found '{}'", self.peek()))),
-        }
-    }
-
-    fn parse_int_lit(&mut self) -> Result<i64, ParseError> {
-        match self.peek().clone() {
-            Token::IntLit(n) => {
-                self.advance();
-                Ok(n)
-            }
-            _ => Err(self.error(format!("expected integer, found '{}'", self.peek()))),
+            other => Err(self.error(format!("expected integer, found '{other}'"))),
         }
     }
 
     fn parse_ident(&mut self) -> Result<String, ParseError> {
-        match self.peek().clone() {
+        match self.peek() {
             Token::Ident(s) => {
+                let ident = s.clone();
                 self.advance();
-                Ok(s)
+                Ok(ident)
             }
-            _ => Err(self.error(format!("expected identifier, found '{}'", self.peek()))),
+            other => Err(self.error(format!("expected identifier, found '{other}'"))),
         }
     }
 
-    fn parse_aggregate(&mut self) -> Result<ParsedAggregation, ParseError> {
+    fn parse_aggregate(&mut self) -> Result<AggregationConfig, ParseError> {
         self.expect(Token::Aggregate)?;
         self.expect(Token::LParen)?;
         self.expect(Token::GroupBy)?;
         self.expect(Token::LParen)?;
-        let group_by = self.parse_column_name()?;
+        let group_by_column = self.parse_column_name()?;
         self.expect(Token::RParen)?;
         self.expect(Token::Comma)?;
 
@@ -358,23 +302,26 @@ impl Parser {
         }
 
         self.expect(Token::RParen)?;
-        Ok(ParsedAggregation {
-            group_by,
+        Ok(AggregationConfig {
+            group_by_column,
             functions,
         })
     }
 
     fn parse_agg_fn(&mut self) -> Result<AggregationFunction, ParseError> {
-        match self.peek().clone() {
-            Token::Count => { self.advance(); Ok(AggregationFunction::Count) }
-            Token::Sum => { self.advance(); Ok(AggregationFunction::Sum) }
-            Token::Avg => { self.advance(); Ok(AggregationFunction::Avg) }
-            Token::Min => { self.advance(); Ok(AggregationFunction::Min) }
-            Token::Max => { self.advance(); Ok(AggregationFunction::Max) }
-            _ => Err(self.error(format!(
-                "expected aggregation function (count, sum, avg, min, max), found '{}'",
-                self.peek()
-            ))),
-        }
+        let function = match self.peek() {
+            Token::Count => AggregationFunction::Count,
+            Token::Sum => AggregationFunction::Sum,
+            Token::Avg => AggregationFunction::Avg,
+            Token::Min => AggregationFunction::Min,
+            Token::Max => AggregationFunction::Max,
+            other => {
+                return Err(self.error(format!(
+                    "expected aggregation function (count, sum, avg, min, max), found '{other}'"
+                )))
+            }
+        };
+        self.advance();
+        Ok(function)
     }
 }

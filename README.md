@@ -147,7 +147,7 @@ has_existed(playerStateChange == "play") && !has_existed(error == "fatal")
 
 ## Quick Start — CIRR Demo
 
-Run the full CIRR pipeline end-to-end with a single command. Requires Docker (for Kafka) and [Golem CLI 1.4.1+](https://learn.golem.cloud).
+Run the full CIRR pipeline end-to-end with a single command. Requires Docker (for Kafka), Rust ≥ 1.94 with the `wasm32-wasip2` target, and [Golem CLI 1.6+](https://learn.golem.cloud).
 
 ```shell
 cargo make demo
@@ -158,7 +158,7 @@ This will:
 2. Build and deploy the timeline WASM component
 3. Initialize 9 CIRR sessions across 3 CDNs (akamai, cloudfront, fastly)
 4. Feed realistic playback events (init → play → buffer → play) to each session
-5. Open a dashboard at **http://localhost:3000**
+5. Open a dashboard at **http://localhost:3000** (set `DASHBOARD_PORT` to use another port)
 
 ### Sub-computation results and their progress for debuggability
 
@@ -274,69 +274,53 @@ no cascading RPC at query time.
 
 ### How to understand the internal details
 
-Use the REPL or `golem agent invoke` to submit a timeline expression to the driver.
-For example, the CIRR expression `EqualTo(TlLatestEventToState("playerStateChange"), "play")`:
+Use `golem agent invoke` to submit a timeline expression to the driver. Arguments use the
+CLI's Rust syntax: struct variants are written `Variant({ field: value })`, newtypes such as
+column names are plain strings, and options are `Some(...)` / `None`. For example,
+`latest_event_to_state(playerStateChange) == "play"`, aggregated by `cdn`:
 
 ```shell
-golem agent invoke \
-  'timeline-driver("cirr")' \
-  'timeline:core/timeline-driver.{initialize-timeline}' \
-  '{nodes: [comparison(equal-to, 1, string-value("play")), tl-latest-event-to-state("playerStateChange")]}'
+golem agent invoke 'TimelineDriver("readme")' initialize_timeline \
+  'Compare({ op: EqualTo, timeline: TlLatestEventToState("playerStateChange"), value: StringValue("play") })' \
+  'Some({ group_by_column: "cdn", functions: [Count, Sum, Avg] })'
 ```
 
-This spawns the required EventProcessor and TimelineProcessor agents, wired together.
+The driver spawns and wires the agents and returns their names:
 
-### Initialize a timeline with cross-session aggregation
-
-To aggregate CIRR duration across CDN sessions, pass an `AggregationConfig` alongside the timeline.
-For example, to group by the `cdn` column in event data and compute Count, Sum, and Avg:
-
-```shell
-golem agent invoke \
-  'timeline-driver("cirr-cdn-x-session-1")' \
-  'timeline:core/timeline-driver.{initialize-timeline}' \
-  '{nodes: [tl-duration-where(1), and(2, 3), comparison(equal-to, 4, string-value("buffer")), tl-latest-event-to-state("playerStateChange"), tl-has-existed(col-name: "playerStateChange", value: string-value("play"), op: equal))]}' \
-  '{group-by-column: "cdn", aggregations: [count, sum, avg]}'
+```text
+InitializeResult { root_agent: "readme-equal-to-1", leaf_agents: ["readme-latest-event-to-state-2"] }
 ```
 
-Each session's root node pushes deltas to the shared `aggregator-cdn-x` agent.
-Query the aggregated metrics across all sessions for that CDN:
-
-```shell
-golem agent invoke \
-  'aggregator("aggregator-cdn-x")' \
-  'timeline:core/aggregator.{get-aggregation-result}'
-```
-
-This returns `{ count, sum, avg, min, max }` — the running aggregate of CIRR duration
-across all sessions grouped under `cdn-x`.
+Pass `None` instead of the aggregation config to skip aggregation. In Rust code, use
+`timeline_client::TimelineClient`, which renders these arguments from the shared
+`common_lib` types and decodes results back into them.
 
 ### Feed events
 
-Once the timeline is initialized, feed events to the leaf EventProcessor agents.
-(`initialize_timeline` is idempotent on Golem — safe to call again with the same graph.)
-The driver logs which agent names it created — use those to target events:
+Send events to the leaf agents returned by `initialize_timeline`:
 
 ```shell
-golem agent invoke \
-  'event-processor("cirr-latest-event-to-state-8")' \
-  'timeline:core/event-processor.{add-event}' \
-  '{time: 1, event: [("playerStateChange", string-value("play"))]}'
+golem agent invoke 'EventProcessor("readme-latest-event-to-state-2")' add_event \
+  '{ time: 1, fields: [{ column: "playerStateChange", value: StringValue("play") }, { column: "cdn", value: StringValue("x") }] }'
 
-golem agent invoke \
-  'event-processor("cirr-latest-event-to-state-8")' \
-  'timeline:core/event-processor.{add-event}' \
-  '{time: 5, event: [("playerStateChange", string-value("pause"))]}'
+golem agent invoke 'EventProcessor("readme-latest-event-to-state-2")' add_event \
+  '{ time: 5, fields: [{ column: "playerStateChange", value: StringValue("pause") }, { column: "cdn", value: StringValue("x") }] }'
 ```
 
 ### Query results
 
 ```shell
-golem agent invoke \
-  'event-processor("cirr-latest-event-to-state-8")' \
-  'timeline:core/event-processor.{get-leaf-result}' \
-  '3'
+golem agent invoke 'EventProcessor("readme-latest-event-to-state-2")' get_leaf_result 3
+# Ok(Some(StatePoint { t1: 1, t2: Some(5), value: EventValue::StringValue("play") }))
+
+golem agent invoke 'TimelineProcessor("readme-equal-to-1")' get_derived_result 6
+# Ok(Some(StatePoint { t1: 5, t2: None, value: EventValue::BoolValue(false) }))
+
+golem agent invoke 'Aggregator("aggregator-cdn-x")' get_aggregation_result
+# AggregationResult { count: 1, sum: 0.0, avg: 0.0, min: None, max: None }
 ```
+
+Add `--format json` for machine-readable output.
 
 ## Deploying CIRR at a Streaming Company
 
@@ -486,10 +470,7 @@ All of John's agents remain completely suspended during this — zero cost.
 **Per-session query** — "What is Afsal's CIRR duration right now?"
 
 ```shell
-golem agent invoke \
-  'timeline-processor("afsal-mando-1-duration-where-1")' \
-  'timeline:core/timeline-processor.{get-derived-result}' \
-  '100'
+golem agent invoke 'TimelineProcessor("afsal-mando-1-duration-where-1")' get_derived_result 100
 ```
 
 This is a local point lookup on `duration-where-1`'s precomputed state — no RPC cascade.
@@ -497,9 +478,7 @@ This is a local point lookup on `duration-where-1`'s precomputed state — no RP
 **Cross-session query** — "What is the average CIRR across all Akamai sessions?"
 
 ```shell
-golem agent invoke \
-  'aggregator("aggregator-cdn-a")' \
-  'timeline:core/aggregator.{get-aggregation-result}'
+golem agent invoke 'Aggregator("aggregator-cdn-a")' get_aggregation_result
 ```
 
 ## TimeLine DSL Operations
@@ -737,15 +716,15 @@ scores, etc.) uses the same deployed component. There is no per-metric deploymen
 When a developer writes a metric and clicks deploy, the system does **not** deploy a new component.
 Instead:
 
-1. **Registers the metric expression** — stores the DSL text and its compiled `TimelineOpGraph`
+1. **Registers the metric expression** — stores the DSL text and its parsed `TimeLineOp`
    plus optional `AggregationConfig` (e.g., `group_by(cdn), count, sum, avg`).
 
-2. **Derives the leaf routing table** — the system walks the compiled graph to identify which
+2. **Derives the leaf routing table** — the system walks the parsed expression to identify which
    nodes are leaves and what each leaf needs from the event stream. For the CIRR metric:
    ```sh
-   node-4  tl-has-existed         → needs events containing "playerStateChange"
-   node-6  tl-has-existed-within  → needs events containing "playerStateChange"
-   node-8  latest-event-to-state  → needs events containing "playerStateChange"
+   has-existed-4           → needs events containing "playerStateChange"
+   has-existed-within-6    → needs events containing "playerStateChange"
+   latest-event-to-state-8 → needs events containing "playerStateChange"
    ```
    This leaf routing table tells the feeder: "for every event in a session, send it to these
    leaf agents."
@@ -753,12 +732,12 @@ Instead:
 3. **Feeder picks up the new metric** — the feeder (Kafka consumer) must learn about the new
    metric's leaf routing table so it can start sending events to the right agents. For every
    incoming event on a session it:
-   - Invokes `timeline-driver("{session-id}")` → `initialize-timeline(graph, aggregation)`
+   - Invokes `TimelineDriver("{session-id}")` → `initialize_timeline(timeline, aggregation)`
      (idempotent — see below) to spawn and wire agents on first use, then reuse them.
    - Sends the event to every leaf agent for that metric:
-     `event-processor("{session-id}-has-existed-4").add-event(...)`,
-     `event-processor("{session-id}-has-existed-within-6").add-event(...)`,
-     `event-processor("{session-id}-latest-event-to-state-8").add-event(...)`.
+     `EventProcessor("{session-id}-has-existed-4").add_event(...)`,
+     `EventProcessor("{session-id}-has-existed-within-6").add_event(...)`,
+     `EventProcessor("{session-id}-latest-event-to-state-8").add_event(...)`.
    - The push cascade takes care of the rest — each leaf pushes state changes upward
      through the derived nodes to the root and aggregator.
 
@@ -783,7 +762,7 @@ templates — it's just a static event router.
 
 `initialize_timeline` returns an `InitializeResult` containing the root agent name and
 all leaf agent names. The feeder can call the driver on every event and get back exactly which
-`event-processor` agents to send events to — no graph walking required. First call spawns and
+`EventProcessor` agents to send events to — no graph walking required. First call spawns and
 wires agents; subsequent calls are idempotent and return the same result.
 
 **The hard problem — how does a running feeder learn about a new metric?**
@@ -806,7 +785,7 @@ A concrete example of the CIRR metric with events arriving from Kafka:
 
 ```text
 Feeder startup:
-  1. Consumes CIRR graph + aggregation config from timeline-metrics-config topic
+  1. Consumes CIRR expression + aggregation config from timeline-metrics-config topic
   2. Ready to process events
 
 Event stream from Kafka (timeline-events topic):
@@ -815,24 +794,24 @@ Event stream from Kafka (timeline-events topic):
   event3: {session: "sess-99", time: 100, playerStateChange: "init",  cdn: "fastly"}
 
 Processing event1 (sess-42):
-  1. Calls: timeline-driver("sess-42").initialize-timeline(cirr_graph, agg_config)
+  1. Calls: TimelineDriver("sess-42").initialize_timeline(cirr, agg_config)
      → Driver spawns 8 agents, wires parent refs
      → Returns InitializeResult:
          root_agent:  "sess-42-duration-where-1"
          leaf_agents: ["sess-42-has-existed-4", "sess-42-has-existed-within-6", "sess-42-latest-event-to-state-8"]
   2. Sends event to each leaf from the result:
-       event-processor("sess-42-has-existed-4").add-event(...)
-       event-processor("sess-42-has-existed-within-6").add-event(...)
-       event-processor("sess-42-latest-event-to-state-8").add-event(...)
+       EventProcessor("sess-42-has-existed-4").add_event(...)
+       EventProcessor("sess-42-has-existed-within-6").add_event(...)
+       EventProcessor("sess-42-latest-event-to-state-8").add_event(...)
 
 Processing event2 (sess-42 again):
-  1. Calls: timeline-driver("sess-42").initialize-timeline(cirr_graph, agg_config)
+  1. Calls: TimelineDriver("sess-42").initialize_timeline(cirr, agg_config)
      → Driver is durable — agents already exist, idempotent, no re-wiring
      → Returns the same InitializeResult
   2. Sends event to the 3 leaves
 
 Processing event3 (sess-99):
-  1. Calls: timeline-driver("sess-99").initialize-timeline(...)
+  1. Calls: TimelineDriver("sess-99").initialize_timeline(...)
      → New session — spawns 8 fresh agents
      → Returns InitializeResult for sess-99's agents
   2. Sends event to sess-99's leaves
@@ -876,20 +855,20 @@ For the CIRR metric, the full agent template is:
 
 | Golem agent ID | Agent name | Operation | Description |
 |---|---|---|---|
-| `timeline-driver("{session-id}")` | `{session-id}` | — | Orchestrator (runs once to spawn and wire all agents) |
-| `timeline-processor("{session-id}-duration-where-1")` | `{session-id}-duration-where-1` | duration-where | Root: cumulative CIRR rebuffering seconds |
-| `timeline-processor("{session-id}-and-2")` | `{session-id}-and-2` | and | All 3 conditions combined |
-| `timeline-processor("{session-id}-and-3")` | `{session-id}-and-3` | and | has-existed ∧ ¬has-existed-within |
-| `event-processor("{session-id}-has-existed-4")` | `{session-id}-has-existed-4` | tl-has-existed | Leaf: has play ever occurred? |
-| `timeline-processor("{session-id}-not-5")` | `{session-id}-not-5` | not | ¬has-existed-within(seek, 5) |
-| `event-processor("{session-id}-has-existed-within-6")` | `{session-id}-has-existed-within-6` | tl-has-existed-within | Leaf: was there a recent seek? |
-| `timeline-processor("{session-id}-equal-to-7")` | `{session-id}-equal-to-7` | equal-to("buffer") | Is current state "buffer"? |
-| `event-processor("{session-id}-latest-event-to-state-8")` | `{session-id}-latest-event-to-state-8` | latest-event-to-state | Leaf: latest playerStateChange |
-| `aggregator("aggregator-cdn-{value}")` | `aggregator-cdn-{value}` | aggregator | Shared across sessions per CDN value |
+| `TimelineDriver("{session-id}")` | `{session-id}` | — | Orchestrator (runs once to spawn and wire all agents) |
+| `TimelineProcessor("{session-id}-duration-where-1")` | `{session-id}-duration-where-1` | duration-where | Root: cumulative CIRR rebuffering seconds |
+| `TimelineProcessor("{session-id}-and-2")` | `{session-id}-and-2` | and | All 3 conditions combined |
+| `TimelineProcessor("{session-id}-and-3")` | `{session-id}-and-3` | and | has-existed ∧ ¬has-existed-within |
+| `EventProcessor("{session-id}-has-existed-4")` | `{session-id}-has-existed-4` | tl-has-existed | Leaf: has play ever occurred? |
+| `TimelineProcessor("{session-id}-not-5")` | `{session-id}-not-5` | not | ¬has-existed-within(seek, 5) |
+| `EventProcessor("{session-id}-has-existed-within-6")` | `{session-id}-has-existed-within-6` | tl-has-existed-within | Leaf: was there a recent seek? |
+| `TimelineProcessor("{session-id}-equal-to-7")` | `{session-id}-equal-to-7` | equal-to("buffer") | Is current state "buffer"? |
+| `EventProcessor("{session-id}-latest-event-to-state-8")` | `{session-id}-latest-event-to-state-8` | latest-event-to-state | Leaf: latest playerStateChange |
+| `Aggregator("aggregator-cdn-{value}")` | `aggregator-cdn-{value}` | aggregator | Shared across sessions per CDN value |
 
 For session `sess-42` on CDN `akamai`, the actual agents are:
-`timeline-driver("sess-42")`, `timeline-processor("sess-42-duration-where-1")`, ...,
-`event-processor("sess-42-has-existed-4")`, ..., `aggregator("aggregator-cdn-akamai")`.
+`TimelineDriver("sess-42")`, `TimelineProcessor("sess-42-duration-where-1")`, ...,
+`EventProcessor("sess-42-has-existed-4")`, ..., `Aggregator("aggregator-cdn-akamai")`.
 
 The developer doesn't need to construct these names manually. The dashboard shows:
 - The **agent template** for their metric (the full table above with business descriptions)
