@@ -305,6 +305,11 @@
       background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
       overflow: hidden;
     }
+    .tl-playhead {
+      position: absolute; top: -2px; bottom: -2px; width: 2px;
+      background: #fff; box-shadow: 0 0 8px rgba(255,255,255,0.8);
+      z-index: 3; pointer-events: none;
+    }
     .tl-bar-wrap.root-bar { border-color: var(--rose); box-shadow: 0 0 8px rgba(218,44,90,0.25); }
     .tl-segment {
       position: absolute; top: 0; bottom: 0; display: flex; align-items: center;
@@ -398,8 +403,8 @@
         <div class="step-body">
           <h3>Stream sub-computations</h3>
           <p>Switch to the <strong>Computation Progress</strong> tab. Select a registered metric,
-             enter a session ID (e.g., <code>sess-0</code>) and query time, then click
-             <strong>▶ Stream</strong> to watch every agent's timeline update live as events flow in.</p>
+             enter a session ID (e.g., <code>sess-0</code>), then click
+             <strong>▶ Live</strong> to play time forward through every agent's timeline.</p>
         </div>
       </div>
       <div class="step">
@@ -454,15 +459,15 @@
     <div class="controls">
       <label for="session-input">Session ID:</label>
       <input id="session-input" type="text" value="sess-0" placeholder="e.g. sess-0" style="width:240px" />
-      <label for="time-input">From (t₁):</label>
-      <input id="time-input" type="number" value="250" style="width:100px" min="0" />
-      <button class="btn" id="stream-btn">▶ Stream</button>
+      <label for="time-input">t =</label>
+      <input id="time-input" type="number" value="1" style="width:100px" min="0" />
+      <button class="btn" id="stream-btn">▶ Live</button>
       <button class="stop-btn" id="stop-stream-btn" style="display:none">■ Stop</button>
       <button class="btn" id="snapshot-btn" style="background:var(--siri-mid)">⏎ Snapshot</button>
       <div class="poll-toggle">
-        <label for="inspect-interval">Interval:</label>
-        <input type="number" id="inspect-interval" class="interval" value="2" min="1" max="30" />
-        <label for="inspect-interval">s</label>
+        <label for="inspect-interval">Step:</label>
+        <input type="number" id="inspect-interval" class="interval" value="2" min="1" max="50" />
+        <label for="inspect-interval">t / tick</label>
       </div>
       <span id="stream-indicator" style="display:none" class="stream-live"><span class="pulse"></span>Live</span>
     </div>
@@ -474,7 +479,7 @@
 
     <div id="tree-output">
       <div class="empty-state">
-        <p>Select a metric above, enter a session ID and query time, then click <strong>▶ Stream</strong> to watch sub-computations update live.</p>
+        <p>Select a metric, pick a session, then click <strong>▶ Live</strong> to play time forward. Snapshot queries one instant.</p>
       </div>
     </div>
   </div>
@@ -598,9 +603,9 @@
       return 'val-string';
     }
 
-    function renderTimelineBar(result, prevPointCount, isRoot, globalMin, globalMax) {
+    function renderTimelineBar(result, prevPointCount, isRoot, globalMin, globalMax, playhead) {
       const pts = getTimelinePoints(result);
-      if (pts.length === 0) return '<span style="color:var(--text-muted);font-size:12px">No state at this t₁ — try a later time (events start at t=1)</span>';
+      if (pts.length === 0) return '<span style="color:var(--text-muted);font-size:12px">No state at this t — Live plays from t=1</span>';
 
       const tMin = globalMin;
       const tMax = globalMax;
@@ -618,6 +623,10 @@
         html += '<div class="tl-segment ' + cls + '" style="left:' + left + '%;width:' + width +
           '%" title="[' + pt.t1 + ', ' + (pt.t2 != null ? pt.t2 : '∞') + ') = ' + val + '">' +
           escHtml(val) + '</div>';
+      }
+      if (playhead != null && playhead >= tMin && playhead <= tMax) {
+        const left = ((playhead - tMin) / span * 100);
+        html += '<div class="tl-playhead" style="left:' + left + '%" title="t = ' + playhead + '"></div>';
       }
       html += '</div>';
       return html;
@@ -846,6 +855,11 @@
     let selectedMetric = null;
     let streamTimer = null;
     let prevPointCounts = {};
+    let replayHistory = {};
+    let playhead = 1;
+    let playbackStart = 1;
+    let playbackEnd = 250;
+    let queryInFlight = false;
 
     async function loadInspectMetrics() {
       try {
@@ -873,6 +887,11 @@
             selectedMetric = el._metrics.find(m => m.name === item.dataset.metricName);
           });
         });
+        if (!selectedMetric && metrics.length) {
+          selectedMetric = metrics[0];
+          const first = el.querySelector('.metric-item');
+          if (first) first.classList.add('active');
+        }
       } catch (e) { /* ignore */ }
     }
 
@@ -919,39 +938,81 @@
       }
     }
 
-    async function queryAllNodes() {
+    function rememberPoint(suffix, result) {
+      const pts = getTimelinePoints(result);
+      if (!pts.length) return;
+      const pt = pts[0];
+      const list = replayHistory[suffix] || (replayHistory[suffix] = []);
+      const value = formatEventValue(pt.value);
+      if (list.some((existing) => existing.t1 === pt.t1 && formatEventValue(existing.value) === value)) {
+        return;
+      }
+      list.push(pt);
+      list.sort((a, b) => a.t1 - b.t1);
+    }
+
+    async function queryAllNodes(playing) {
       if (!selectedMetric) { setStatus('Select a metric first', false); return; }
       const session = sessionInput.value.trim();
-      const t1 = parseInt(timeInput.value, 10);
+      const t1 = playing ? playhead : parseInt(timeInput.value, 10);
       if (!session || isNaN(t1)) { setStatus('Enter session ID and query time', false); return; }
 
       const nodes = buildNodeList();
-      const results = await Promise.all(nodes.map(n => queryNode(session, t1, n)));
-      renderInspectTree(session, t1, results);
+      let results = await Promise.all(nodes.map(n => queryNode(session, t1, n)));
+      if (playing) {
+        for (const r of results) rememberPoint(r.suffix, r.result);
+        results = results.map((r) => ({
+          ...r,
+          result: { results: replayHistory[r.suffix] || [] },
+        }));
+      }
+      const axis = playing
+        ? { playhead, globalMin: playbackStart, globalMax: playbackEnd }
+        : null;
+      renderInspectTree(session, t1, results, axis);
 
-      // Update prev counts for next tick highlight
       for (const r of results) {
         prevPointCounts[r.suffix] = getTimelinePoints(r.result).length;
       }
 
-      setStatus('Streamed ' + results.length + ' nodes at t=' + t1 + ' — ' + new Date().toLocaleTimeString(), true);
+      setStatus((playing ? 'Live t=' : 'Snapshot t=') + t1 + ' — ' + new Date().toLocaleTimeString(), true);
     }
 
     function startStream() {
       if (!selectedMetric) { setStatus('Select a metric first', false); return; }
       const session = sessionInput.value.trim();
-      const t1 = parseInt(timeInput.value, 10);
-      if (!session || isNaN(t1)) { setStatus('Enter session ID and query time', false); return; }
+      if (!session) { setStatus('Enter session ID', false); return; }
 
       stopStream();
       prevPointCounts = {};
+      replayHistory = {};
+      playbackStart = 1;
+      playbackEnd = 250;
+      playhead = playbackStart;
+      timeInput.value = String(playhead);
       streamBtn.style.display = 'none';
       stopStreamBtn.style.display = '';
       streamIndicator.style.display = '';
 
-      queryAllNodes();
-      const ms = (parseInt(inspectInterval.value, 10) || 2) * 1000;
-      streamTimer = setInterval(queryAllNodes, ms);
+      async function tick() {
+        if (queryInFlight) return;
+        queryInFlight = true;
+        try {
+          await queryAllNodes(true);
+          const step = Math.max(1, parseInt(inspectInterval.value, 10) || 2);
+          playhead += step;
+          if (playhead > playbackEnd) {
+            playhead = playbackStart;
+            replayHistory = {};
+            prevPointCounts = {};
+          }
+          timeInput.value = String(playhead);
+        } finally {
+          queryInFlight = false;
+        }
+      }
+      tick();
+      streamTimer = setInterval(tick, 400);
     }
 
     function stopStream() {
@@ -963,12 +1024,9 @@
 
     streamBtn.addEventListener('click', startStream);
     stopStreamBtn.addEventListener('click', stopStream);
-    snapshotBtn.addEventListener('click', () => { stopStream(); queryAllNodes(); });
-    inspectInterval.addEventListener('change', () => {
-      if (streamTimer) startStream();
-    });
+    snapshotBtn.addEventListener('click', () => { stopStream(); queryAllNodes(false); });
 
-    function renderInspectTree(session, t1, results) {
+    function renderInspectTree(session, t1, results, axis) {
       // Find the root node (lowest counter among derived = first in DFS = the root)
       let rootSuffix = null;
       let rootCounter = Infinity;
@@ -979,20 +1037,22 @@
         }
       }
 
-      // Compute global time range across ALL nodes so bars are aligned
-      let globalMin = Infinity;
-      let globalMax = 0;
-      for (const r of results) {
-        if (r.status !== 'ok') continue;
-        const pts = getTimelinePoints(r.result);
-        for (const pt of pts) {
-          if (pt.t1 < globalMin) globalMin = pt.t1;
-          const end = pt.t2 != null ? pt.t2 : pt.t1 + 10;
-          if (end > globalMax) globalMax = end;
+      let globalMin = axis ? axis.globalMin : Infinity;
+      let globalMax = axis ? axis.globalMax : 0;
+      if (!axis) {
+        for (const r of results) {
+          if (r.status !== 'ok') continue;
+          const pts = getTimelinePoints(r.result);
+          for (const pt of pts) {
+            if (pt.t1 < globalMin) globalMin = pt.t1;
+            const end = pt.t2 != null ? pt.t2 : pt.t1 + 10;
+            if (end > globalMax) globalMax = end;
+          }
         }
       }
       if (globalMin === Infinity) globalMin = 0;
       if (globalMax === 0) globalMax = 1;
+      const playheadAt = axis ? axis.playhead : null;
 
       // Enrich results with friendly labels
       const enriched = results.map(r => {
@@ -1003,7 +1063,7 @@
       let html = '<div class="result-section">' +
         '<div class="agent-name">Session: <code>' + escHtml(session) +
         '</code> — Metric: <code>' + escHtml(selectedMetric.name) +
-        '</code> from t₁ = <code>' + t1 + '</code></div>';
+        '</code> at t = <code>' + t1 + '</code></div>';
 
       // Shared time axis at the top
       html += '<div class="tl-axis" style="margin-bottom:8px;font-size:11px">' +
@@ -1024,7 +1084,7 @@
           html += '<div class="error-msg" style="margin-top:8px">' + escHtml(r.error) + '</div>';
         } else {
           const prev = prevPointCounts[r.suffix];
-          html += renderTimelineBar(r.result, prev, r.isRoot, globalMin, globalMax);
+          html += renderTimelineBar(r.result, prev, r.isRoot, globalMin, globalMax, playheadAt);
         }
 
         html += '</div>';
@@ -1055,16 +1115,26 @@
           el.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">No metrics with aggregation registered.</span>';
           return;
         }
+        const demoGroups = ['akamai', 'cloudfront', 'fastly'];
         let html = '';
         for (const m of withAgg) {
           const col = m.aggregation.group_by_column;
           html += '<span style="font-size:12px;color:var(--text-muted);margin-right:8px;">' +
-            escHtml(m.name) + ' (group_by: ' + escHtml(col) + '):</span>' +
-            '<button class="preset-btn" data-agent="aggregator-' + escHtml(col) + '-"' +
-            ' onclick="agentInput.value=this.dataset.agent; agentInput.focus();">' +
-            'aggregator-' + escHtml(col) + '-{value}</button> ';
+            escHtml(m.name) + ' (group_by: ' + escHtml(col) + '):</span>';
+          for (const value of demoGroups) {
+            const agent = 'aggregator-' + col + '-' + value;
+            html += '<button class="preset-btn" data-agent="' + escHtml(agent) + '">' +
+              escHtml(agent) + '</button> ';
+          }
         }
         el.innerHTML = html;
+        el.querySelectorAll('.preset-btn[data-agent]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            agentInput.value = btn.dataset.agent;
+            doFetch();
+            if (pollCheck.checked) startPoll();
+          });
+        });
       } catch (e) { /* ignore */ }
     }
 

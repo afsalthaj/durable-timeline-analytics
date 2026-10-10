@@ -26,8 +26,8 @@ Docker, Rust ≥ 1.94 (`wasm32-wasip2`), and [Golem CLI 1.6+](https://learn.gole
 
 It starts Golem and Kafka, deploys CIRR across three CDNs, feeds playback events, and opens the dashboard at http://localhost:3000 (or the next free port). Then try:
 
-- **Computation Progress** → `sess-0` → query at time `250` — every clause of CIRR, live
-- Same session, time `120` — play has started, buffering has not
+- **Computation Progress** → `cirr` → `sess-0` → **▶ Live** — time plays 1→250 and every clause moves
+- **Snapshot** at `120` — play has started, buffering has not
 - The aggregate view — count / sum / avg by CDN (akamai, cloudfront, fastly)
 
 ```shell
