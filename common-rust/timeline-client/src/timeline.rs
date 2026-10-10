@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Typed calls to the timeline agents.
 use common_lib::{
-    AgentName, AggregationConfig, AggregationResult, Event, InitializeResult, SessionId,
-    StatePoint, TimeLineOp, TimelineError,
+    AgentName, AggregationConfig, AggregationResult, Event, InitializeResult, MetricName,
+    SessionId, StatePoint, TimeLineOp, TimelineError,
 };
 
 use crate::cli::{AgentRef, AgentType, ClientError, GolemCli, arg};
@@ -21,10 +21,11 @@ impl TimelineClient {
         &self.cli
     }
 
-    /// Spawns and wires the agents of `timeline` for `session`.
+    /// Spawns and wires the agents of `metric` for `session`.
     pub fn initialize_timeline(
         &self,
         session: &SessionId,
+        metric: &MetricName,
         timeline: &TimeLineOp,
         aggregation: Option<&AggregationConfig>,
     ) -> Result<InitializeResult, ClientError> {
@@ -32,7 +33,7 @@ impl TimelineClient {
         self.cli.invoke(
             &driver,
             "initialize_timeline",
-            &[arg(timeline)?, arg(&aggregation)?],
+            &[arg(metric)?, arg(timeline)?, arg(&aggregation)?],
         )
     }
 
@@ -73,12 +74,24 @@ impl TimelineClient {
         Ok(result?)
     }
 
+    /// The aggregate as of the latest event time reported to `aggregator`.
     pub fn get_aggregation_result(
         &self,
         aggregator: &AgentName,
     ) -> Result<AggregationResult, ClientError> {
         let agent = AgentRef::new(AgentType::Aggregator, aggregator.clone());
         self.cli.invoke(&agent, "get_aggregation_result", &[])
+    }
+
+    /// The aggregate at event time `time`.
+    pub fn get_aggregation_result_at(
+        &self,
+        aggregator: &AgentName,
+        time: u64,
+    ) -> Result<AggregationResult, ClientError> {
+        let agent = AgentRef::new(AgentType::Aggregator, aggregator.clone());
+        self.cli
+            .invoke(&agent, "get_aggregation_result_at", &[arg(&time)?])
     }
 }
 

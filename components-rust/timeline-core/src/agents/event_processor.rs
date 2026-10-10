@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 use golem_rust::{agent_definition, agent_implementation};
 
-use common_lib::{Event, EventColumnName, StatePoint, TimelineError};
+use common_lib::{Event, EventColumnName, EventValue, StatePoint, TimelineError};
 
 use crate::agents::helpers::notify_parent;
 use crate::compute::LeafState;
@@ -12,9 +12,9 @@ use crate::types::{LeafOperation, ParentRef};
 /// CIRR example (agent names for session `sess-42`):
 ///   ```text
 ///   duration_where(
-///     has_existed(playerStateChange == "play")               ← sess-42-has-existed-4
-///     && !has_existed_within(playerStateChange == "seek", 5) ← sess-42-has-existed-within-6
-///     && latest_event_to_state(playerStateChange) == "buffer" ← sess-42-latest-event-to-state-8
+///     has_existed(playerStateChange == "play")               ← sess-42-cirr-has-existed-4
+///     && !has_existed_within(playerStateChange == "seek", 5) ← sess-42-cirr-has-existed-within-6
+///     && latest_event_to_state(playerStateChange) == "buffer" ← sess-42-cirr-latest-event-to-state-8
 ///   ) | aggregate(group_by=cdn, count, sum, avg)
 ///   ```
 ///
@@ -26,8 +26,9 @@ use crate::types::{LeafOperation, ParentRef};
 ///   2. has-existed-within-6: predicate doesn't match → no push
 ///   3. latest-event-to-state-8: state becomes `"play"` → pushes `("play", "akamai")`
 ///
-/// `"akamai"` is the group-by column value, extracted from the event and carried
-/// through the cascade.
+/// `"akamai"` is the group-by column value, carried through the cascade. The
+/// leaf remembers the last value it saw, so events without the column still
+/// carry the session's group.
 #[agent_definition]
 pub trait EventProcessor {
     fn new(name: String) -> Self;
@@ -40,7 +41,7 @@ pub trait EventProcessor {
     fn set_parent(&mut self, parent: ParentRef);
 
     /// Tell this leaf which event column to extract for aggregation grouping.
-    /// The extracted value travels up the entire push cascade to the root.
+    /// The latest value seen travels up the entire push cascade to the root.
     fn set_group_by_column(&mut self, column: EventColumnName);
 
     /// Ingest a raw event. Evaluates the leaf operation, and if its state
@@ -55,6 +56,7 @@ struct EventProcessorImpl {
     state: Option<LeafState>,
     parent: Option<ParentRef>,
     group_by_column: Option<EventColumnName>,
+    group_by_value: Option<EventValue>,
 }
 
 #[agent_implementation]
@@ -64,6 +66,7 @@ impl EventProcessor for EventProcessorImpl {
             state: None,
             parent: None,
             group_by_column: None,
+            group_by_value: None,
         }
     }
 
@@ -84,17 +87,20 @@ impl EventProcessor for EventProcessorImpl {
     async fn add_event(&mut self, event: Event) -> Result<(), TimelineError> {
         let state = self.state.as_mut().ok_or(TimelineError::NotInitialized)?;
         let changes = state.ingest(&event);
-        let group_by_value = self
+        if let Some(value) = self
             .group_by_column
             .as_ref()
-            .and_then(|column| event.value_of(column));
+            .and_then(|column| event.value_of(column))
+        {
+            self.group_by_value = Some(value.clone());
+        }
 
         for change in changes {
             notify_parent(
                 self.parent.as_ref(),
                 change.time,
                 change.value,
-                group_by_value,
+                self.group_by_value.as_ref(),
             )
             .await;
         }

@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use event_generator::last_player_state;
-use integration_harness::fixtures::latest;
+use integration_harness::fixtures::{METRIC, latest, metric};
 use integration_harness::harness::{self, TestResult};
 use kafka_consumer_feeder::{FeederConfig, GolemFeeder};
 use kafka_producer::TimelineKafkaProducer;
@@ -24,7 +24,12 @@ fn kafka_event_pipeline() -> TestResult {
 
     let session = harness::unique_session("kafka-pipe");
     let topic = format!("timeline-{session}");
-    let init = client.initialize_timeline(&session, &latest("playerStateChange"), None)?;
+    let init = client.initialize_timeline(
+        &session,
+        &metric(METRIC),
+        &latest("playerStateChange"),
+        None,
+    )?;
 
     let events = event_generator::generate_cirr_session_events_n(session.as_str(), "akamai", 10);
     let last = last_player_state(&events).ok_or("no playerStateChange event generated")?;

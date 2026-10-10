@@ -846,7 +846,7 @@ a [future design goal](#future-design-compute-reuse-across-workflows) documented
 ### Agent naming
 
 The `TimelineDriver` names inner agents using pre-order depth-first numbering:
-`{session-id}-{operation}-{counter}`. Each node is a separate Golem agent with its own agent type.
+`{session-id}-{metric}-{operation}-{counter}`. Each node is a separate Golem agent with its own agent type.
 The developer sees a **template** of all agents their metric will create per session, with
 `{session-id}` as a placeholder. They pick a real session ID from the list of sessions the
 platform has seen to inspect or query.
@@ -856,19 +856,19 @@ For the CIRR metric, the full agent template is:
 | Golem agent ID | Agent name | Operation | Description |
 |---|---|---|---|
 | `TimelineDriver("{session-id}")` | `{session-id}` | — | Orchestrator (runs once to spawn and wire all agents) |
-| `TimelineProcessor("{session-id}-duration-where-1")` | `{session-id}-duration-where-1` | duration-where | Root: cumulative CIRR rebuffering seconds |
-| `TimelineProcessor("{session-id}-and-2")` | `{session-id}-and-2` | and | All 3 conditions combined |
-| `TimelineProcessor("{session-id}-and-3")` | `{session-id}-and-3` | and | has-existed ∧ ¬has-existed-within |
-| `EventProcessor("{session-id}-has-existed-4")` | `{session-id}-has-existed-4` | tl-has-existed | Leaf: has play ever occurred? |
-| `TimelineProcessor("{session-id}-not-5")` | `{session-id}-not-5` | not | ¬has-existed-within(seek, 5) |
-| `EventProcessor("{session-id}-has-existed-within-6")` | `{session-id}-has-existed-within-6` | tl-has-existed-within | Leaf: was there a recent seek? |
-| `TimelineProcessor("{session-id}-equal-to-7")` | `{session-id}-equal-to-7` | equal-to("buffer") | Is current state "buffer"? |
-| `EventProcessor("{session-id}-latest-event-to-state-8")` | `{session-id}-latest-event-to-state-8` | latest-event-to-state | Leaf: latest playerStateChange |
-| `Aggregator("aggregator-cdn-{value}")` | `aggregator-cdn-{value}` | aggregator | Shared across sessions per CDN value |
+| `TimelineProcessor("{session-id}-{metric}-duration-where-1")` | `{session-id}-{metric}-duration-where-1` | duration-where | Root: cumulative CIRR rebuffering seconds |
+| `TimelineProcessor("{session-id}-{metric}-and-2")` | `{session-id}-{metric}-and-2` | and | All 3 conditions combined |
+| `TimelineProcessor("{session-id}-{metric}-and-3")` | `{session-id}-{metric}-and-3` | and | has-existed ∧ ¬has-existed-within |
+| `EventProcessor("{session-id}-{metric}-has-existed-4")` | `{session-id}-{metric}-has-existed-4` | tl-has-existed | Leaf: has play ever occurred? |
+| `TimelineProcessor("{session-id}-{metric}-not-5")` | `{session-id}-{metric}-not-5` | not | ¬has-existed-within(seek, 5) |
+| `EventProcessor("{session-id}-{metric}-has-existed-within-6")` | `{session-id}-{metric}-has-existed-within-6` | tl-has-existed-within | Leaf: was there a recent seek? |
+| `TimelineProcessor("{session-id}-{metric}-equal-to-7")` | `{session-id}-{metric}-equal-to-7` | equal-to("buffer") | Is current state "buffer"? |
+| `EventProcessor("{session-id}-{metric}-latest-event-to-state-8")` | `{session-id}-{metric}-latest-event-to-state-8` | latest-event-to-state | Leaf: latest playerStateChange |
+| `Aggregator("aggregator-{metric}-cdn-{value}")` | `aggregator-{metric}-cdn-{value}` | aggregator | Shared across sessions per CDN value |
 
-For session `sess-42` on CDN `akamai`, the actual agents are:
-`TimelineDriver("sess-42")`, `TimelineProcessor("sess-42-duration-where-1")`, ...,
-`EventProcessor("sess-42-has-existed-4")`, ..., `Aggregator("aggregator-cdn-akamai")`.
+For session `sess-42`, metric `cirr`, on CDN `akamai`, the actual agents are:
+`TimelineDriver("sess-42")`, `TimelineProcessor("sess-42-cirr-duration-where-1")`, ...,
+`EventProcessor("sess-42-cirr-has-existed-4")`, ..., `Aggregator("aggregator-cirr-cdn-akamai")`.
 
 The developer doesn't need to construct these names manually. The dashboard shows:
 - The **agent template** for their metric (the full table above with business descriptions)

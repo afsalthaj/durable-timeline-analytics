@@ -6,7 +6,7 @@ use std::error::Error;
 use std::path::{Path as FsPath, PathBuf};
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
@@ -85,6 +85,13 @@ struct PointQuery {
     t1: u64,
 }
 
+/// Query parameters of `/api/aggregation/{agent}`: the event time to evaluate
+/// at, defaulting to the latest time reported to the aggregator.
+#[derive(Deserialize)]
+struct AggregationQuery {
+    at: Option<u64>,
+}
+
 /// Runs a blocking client call off the async runtime.
 async fn blocking<T: Send + 'static>(
     call: impl FnOnce() -> Result<T, ClientError> + Send + 'static,
@@ -105,11 +112,15 @@ async fn index() -> Html<&'static str> {
 async fn aggregation(
     State(state): State<AppState>,
     Path(agent): Path<AgentName>,
+    Query(query): Query<AggregationQuery>,
 ) -> Result<Json<common_lib::AggregationResult>, ApiError> {
     let client = state.client;
-    blocking(move || client.get_aggregation_result(&agent))
-        .await
-        .map(Json)
+    blocking(move || match query.at {
+        Some(time) => client.get_aggregation_result_at(&agent, time),
+        None => client.get_aggregation_result(&agent),
+    })
+    .await
+    .map(Json)
 }
 
 async fn leaf_result(

@@ -1,8 +1,16 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Builders for the timelines and events used across integration tests.
 use common_lib::{
-    CompareOp, Event, EventColumnName, EventField, EventPredicate, EventValue, TimeLineOp,
+    CompareOp, Event, EventColumnName, EventField, EventPredicate, EventValue, MetricName,
+    TimeLineOp,
 };
+
+/// The metric name used by tests that run a single metric per session.
+pub const METRIC: &str = "m";
+
+pub fn metric(name: &str) -> MetricName {
+    MetricName::new(name)
+}
 
 pub fn string(value: &str) -> EventValue {
     EventValue::StringValue(value.to_string())

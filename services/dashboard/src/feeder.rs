@@ -7,12 +7,14 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use common_lib::{AgentName, AggregationConfig, Event, EventColumnName, SessionId, TimeLineOp};
+use common_lib::{
+    AgentName, AggregationConfig, Event, EventColumnName, MetricName, SessionId, TimeLineOp,
+};
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::{ClientConfig, Message};
 use timeline_client::TimelineClient;
 
-use crate::registry::{AgentSuffix, MetricName, Registration};
+use crate::registry::{AgentSuffix, Registration};
 
 /// Tracks which metrics have active feeder tasks.
 #[derive(Clone)]
@@ -65,7 +67,7 @@ impl FeederManager {
         let manager = self.clone();
         tokio::spawn(async move {
             if let Err(e) = manager.run(&feed).await {
-                eprintln!("[feeder:{}] error: {e}", feed.metric.0);
+                eprintln!("[feeder:{}] error: {e}", feed.metric);
             }
         });
     }
@@ -75,7 +77,7 @@ impl FeederManager {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_millis())
             .unwrap_or_default();
-        let group_id = format!("dashboard-feeder-{}-{started}", feed.metric.0);
+        let group_id = format!("dashboard-feeder-{}-{started}", feed.metric);
 
         let consumer: StreamConsumer = ClientConfig::new()
             .set("bootstrap.servers", &self.kafka_broker)
@@ -87,7 +89,7 @@ impl FeederManager {
         consumer
             .subscribe(&[&self.kafka_topic])
             .map_err(|e| e.to_string())?;
-        println!("[feeder:{}] started, group={group_id}", feed.metric.0);
+        println!("[feeder:{}] started, group={group_id}", feed.metric);
 
         let mut initialized: HashSet<SessionId> = HashSet::new();
         let mut event_count: u64 = 0;
@@ -96,11 +98,11 @@ impl FeederManager {
             {
                 Ok(Ok(message)) => message,
                 Ok(Err(e)) => {
-                    eprintln!("[feeder:{}] kafka error: {e}", feed.metric.0);
+                    eprintln!("[feeder:{}] kafka error: {e}", feed.metric);
                     continue;
                 }
                 Err(_) => {
-                    println!("[feeder:{}] idle (no messages for 10s)", feed.metric.0);
+                    println!("[feeder:{}] idle (no messages for 10s)", feed.metric);
                     continue;
                 }
             };
@@ -119,28 +121,28 @@ impl FeederManager {
             if !initialized.contains(&session) {
                 match self.initialize(feed, &session).await {
                     Ok(()) => {
-                        println!("[feeder:{}] initialized session {session}", feed.metric.0);
+                        println!("[feeder:{}] initialized session {session}", feed.metric);
                         initialized.insert(session.clone());
                     }
                     Err(e) => {
                         eprintln!(
                             "[feeder:{}] failed to initialize session {session}: {e}",
-                            feed.metric.0
+                            feed.metric
                         );
                         continue;
                     }
                 }
             }
 
-            for leaf in leaves_for(&feed.routes, &session, &event) {
+            for leaf in leaves_for(&feed.routes, &session, &feed.metric, &event) {
                 if let Err(e) = self.add_event(&leaf, &event).await {
-                    eprintln!("[feeder:{}] failed to send to {leaf}: {e}", feed.metric.0);
+                    eprintln!("[feeder:{}] failed to send to {leaf}: {e}", feed.metric);
                 }
             }
 
             event_count += 1;
             if event_count.is_multiple_of(10) {
-                println!("[feeder:{}] processed {event_count} events", feed.metric.0);
+                println!("[feeder:{}] processed {event_count} events", feed.metric);
             }
         }
     }
@@ -148,11 +150,12 @@ impl FeederManager {
     async fn initialize(&self, feed: &MetricFeed, session: &SessionId) -> Result<(), String> {
         let client = self.client.clone();
         let session = session.clone();
+        let metric = feed.metric.clone();
         let timeline = feed.timeline.clone();
         let aggregation = feed.aggregation.clone();
         tokio::task::spawn_blocking(move || {
             client
-                .initialize_timeline(&session, &timeline, aggregation.as_ref())
+                .initialize_timeline(&session, &metric, &timeline, aggregation.as_ref())
                 .map(|_| ())
                 .map_err(|e| e.to_string())
         })
@@ -172,9 +175,14 @@ impl FeederManager {
     }
 }
 
-/// The leaves of `session` that read at least one column of `event`, in a
-/// stable order and without duplicates.
-fn leaves_for(routes: &Routes, session: &SessionId, event: &Event) -> Vec<AgentName> {
+/// The leaves of `metric` on `session` that read at least one column of
+/// `event`, in a stable order and without duplicates.
+fn leaves_for(
+    routes: &Routes,
+    session: &SessionId,
+    metric: &MetricName,
+    event: &Event,
+) -> Vec<AgentName> {
     let suffixes: BTreeSet<&str> = event
         .fields
         .iter()
@@ -184,7 +192,7 @@ fn leaves_for(routes: &Routes, session: &SessionId, event: &Event) -> Vec<AgentN
         .collect();
     suffixes
         .into_iter()
-        .map(|suffix| AgentName::new(format!("{session}-{suffix}")))
+        .map(|suffix| AgentName::new(format!("{session}-{metric}-{suffix}")))
         .collect()
 }
 
@@ -217,10 +225,10 @@ mod tests {
             ],
         };
         assert_eq!(
-            leaves_for(&routes, &SessionId::new("s"), &event),
+            leaves_for(&routes, &SessionId::new("s"), &MetricName::new("m"), &event),
             vec![
-                AgentName::new("s-has-existed-4"),
-                AgentName::new("s-latest-event-to-state-8"),
+                AgentName::new("s-m-has-existed-4"),
+                AgentName::new("s-m-latest-event-to-state-8"),
             ]
         );
     }

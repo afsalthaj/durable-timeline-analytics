@@ -407,7 +407,7 @@
         <div class="step-body">
           <h3>Watch aggregation results</h3>
           <p>Switch to the <strong>Live Dashboard</strong> tab. Enter an aggregator agent name
-             (e.g., <code>aggregator-cdn-akamai</code>) and enable auto-poll to watch
+             (e.g., <code>aggregator-cirr-cdn-akamai</code>) and enable auto-poll to watch
              cross-session metrics update in real time.</p>
         </div>
       </div>
@@ -478,7 +478,7 @@
   <div id="live-panel" class="panel">
     <div class="controls">
       <label for="agent-input">Aggregator agent:</label>
-      <input id="agent-input" type="text" value="" placeholder="e.g. aggregator-cdn-akamai" style="width:280px" />
+      <input id="agent-input" type="text" value="" placeholder="e.g. aggregator-cirr-cdn-akamai" style="width:280px" />
       <button id="fetch-btn">Fetch</button>
       <div class="poll-toggle">
         <input type="checkbox" id="poll-check" />
@@ -768,7 +768,7 @@
 
       // Computation graph as a tree
       html += '<div class="section-title" style="margin-top:0">Computation Graph' +
-        '<span class="hint" data-tip="Each node is a durable Golem agent. Named {session-id}-{suffix}.">?</span></div>';
+        '<span class="hint" data-tip="Each node is a durable Golem agent. Named {session-id}-{metric}-{suffix}.">?</span></div>';
 
       html += '<div class="tree-legend">' +
         '<span><span class="tree-legend-dot leaf"></span>Leaf — receives source events</span>' +
@@ -892,7 +892,7 @@
     }
 
     async function queryNode(session, t1, n) {
-      const agentName = session + '-' + n.suffix;
+      const agentName = session + '-' + selectedMetric.name + '-' + n.suffix;
       const endpoint = n.type === 'leaf'
         ? '/api/leaf/' + encodeURIComponent(agentName) + '/' + t1
         : '/api/derived/' + encodeURIComponent(agentName) + '/' + t1;
@@ -1048,9 +1048,9 @@
           const col = m.aggregation.group_by_column;
           html += '<span style="font-size:12px;color:var(--text-muted);margin-right:8px;">' +
             escHtml(m.name) + ' (group_by: ' + escHtml(col) + '):</span>' +
-            '<button class="preset-btn" data-agent="aggregator-' + escHtml(col) + '-"' +
+            '<button class="preset-btn" data-agent="aggregator-' + escHtml(m.name) + '-' + escHtml(col) + '-"' +
             ' onclick="agentInput.value=this.dataset.agent; agentInput.focus();">' +
-            'aggregator-' + escHtml(col) + '-{value}</button> ';
+            'aggregator-' + escHtml(m.name) + '-' + escHtml(col) + '-{value}</button> ';
         }
         el.innerHTML = html;
       } catch (e) { /* ignore */ }
@@ -1086,6 +1086,8 @@
         { label: 'Sessions (count)', value: fmt(r.count), cls: 'count' },
         { label: 'Total (sum)', value: fmt(r.sum), cls: 'sum' },
         { label: 'Avg / session', value: fmt(r.avg), cls: 'avg' },
+        { label: 'Min', value: fmt(r.min), cls: 'avg' },
+        { label: 'Max', value: fmt(r.max), cls: 'avg' },
       ];
       let html =
         '<div class="result-section">' +

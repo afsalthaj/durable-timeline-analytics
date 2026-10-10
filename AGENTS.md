@@ -25,7 +25,7 @@ Durable timeline analytics on [Golem](https://learn.golem.cloud) — a durable a
 - The WASM component uses the `golem-rust` 3.x SDK with `#[agent_definition]` / `#[agent_implementation]` macros. Types crossing agent boundaries derive `Schema, IntoWire, FromWire, WireSchema`.
 - `TimeLineOp` is recursive and is sent over the wire as-is; there is no flat graph encoding.
 - Agents are invoked as `golem agent invoke 'AgentType("name")' method_name <args>`, with arguments in Rust syntax: `Some(x)`, `[a, b]`, `{ field: value }`, `Variant(value)`, and struct variants as `Variant({ field: value })`. Use `timeline_client` rather than writing these strings by hand.
-- Agent names come from `TimeLineOp::numbered_nodes()` (pre-order depth-first, root = 1) and `AgentName::for_node`: `{session}-{operation}-{n}`, e.g. `sess-42-has-existed-4`, `sess-42-duration-where-1`. The driver and the dashboard both use this single source.
+- Agent names come from `TimeLineOp::numbered_nodes()` (pre-order depth-first, root = 1) and `AgentName::for_node`: `{session}-{metric}-{operation}-{n}`, e.g. `sess-42-cirr-has-existed-4`, `sess-42-cirr-duration-where-1`. Aggregators are `aggregator-{metric}-{column}-{value}`. The driver and the dashboard both use this single source.
 - The push cascade flows leaf → root via `on_child_state_changed`. Point-in-time queries (`get_leaf_result`, `get_derived_result`) are local lookups — no RPC cascade.
 
 ## Coding conventions

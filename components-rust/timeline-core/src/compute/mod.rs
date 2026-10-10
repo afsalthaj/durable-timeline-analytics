@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 //! Timeline computations performed by the agents, free of any Golem RPC so
 //! they can be unit-tested natively.
+mod aggregate;
 mod derived;
 mod leaf;
 
+pub use aggregate::{AggregatorLink, ReportRoute, SessionAggregates};
 pub use derived::{ChildUpdate, DerivedState};
 pub use leaf::{LeafChange, LeafState};
 
