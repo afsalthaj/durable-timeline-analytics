@@ -2,7 +2,7 @@
 
 A metric language for **what is true over time**, not just what happened in a window.
 
-Talk: [LambdaConf 2024](https://www.youtube.com/watch?v=9WjUBOfgriY)
+[Talk from Afsal Thaj](https://www.youtube.com/watch?v=9WjUBOfgriY)
 
 Streaming engines are built for window aggregates: counts, sums, profiles. Flink, Spark, Kafka Streams, PySpark, and the in-house stacks built on them all do this well. They are weaker at the questions fraud, QoE, and risk teams actually write down:
 
