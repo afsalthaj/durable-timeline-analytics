@@ -5,7 +5,7 @@ use common_lib::{AgentName, AggregationConfig, InitializeResult, SessionId, Time
 
 use crate::agents::event_processor::EventProcessorClient;
 use crate::agents::timeline_processor::TimelineProcessorClient;
-use crate::plan::{plan_agents, AgentPlan, NodeRole};
+use crate::plan::{AgentPlan, NodeRole, plan_agents};
 
 /// Orchestrator agent. Spawns all leaf and derived agents for a timeline
 /// expression and wires them together. One driver per session.

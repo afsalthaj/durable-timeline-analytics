@@ -1,5 +1,5 @@
 .idea/
 /golem-temp
-/target
+target/
 /.agents
 /.claude

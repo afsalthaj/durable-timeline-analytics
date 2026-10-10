@@ -1,149 +1,95 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+//! Publishes a sample CIRR playback session to a Pulsar topic.
+//!
+//! # Environment variables
+//! - `PULSAR_ADDRESS`: broker URL (default: `pulsar://127.0.0.1:6650`)
+//! - `PULSAR_TOPIC`: topic (default: `non-persistent://public/default/test`)
+//! - `PULSAR_TOKEN` or `PULSAR_OAUTH2`: optional authentication
+
 use std::env;
+use std::error::Error;
+use std::time::Duration;
 
-use log;
+use common_lib::{Event, EventField, EventValue};
+use pulsar::authentication::oauth2::OAuth2Authentication;
 use pulsar::{
-    authentication::oauth2::OAuth2Authentication, producer, Authentication, Error as PulsarError,
-    Pulsar, SerializeMessage, TokioExecutor,
+    Authentication, Error as PulsarError, Pulsar, SerializeMessage, TokioExecutor, producer,
 };
-use serde::{Deserialize, Serialize};
-use tokio;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Event {
-    pub time: u64,
-    pub event: Vec<(String, EventValue)>,
-}
+struct PulsarEvent(Event);
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "kebab-case")]
-pub enum EventValue {
-    StringValue(String),
-    IntValue(i64),
-    FloatValue(f64),
-    BoolValue(bool),
-}
-
-impl SerializeMessage for Event {
+impl SerializeMessage for PulsarEvent {
     fn serialize_message(input: Self) -> Result<producer::Message, PulsarError> {
-        let payload = serde_json::to_vec(&input).map_err(|e| PulsarError::Custom(e.to_string()))?;
-        Ok(producer::Message { payload, ..Default::default() })
+        let payload =
+            serde_json::to_vec(&input.0).map_err(|e| PulsarError::Custom(e.to_string()))?;
+        Ok(producer::Message {
+            payload,
+            ..Default::default()
+        })
     }
+}
+
+fn event(time: u64, column: &str, value: &str) -> Event {
+    Event {
+        time,
+        fields: vec![EventField::new(
+            column,
+            EventValue::StringValue(value.to_string()),
+        )],
+    }
+}
+
+fn cirr_session() -> Vec<Event> {
+    vec![
+        event(1, "playerStateChange", "init"),
+        event(2, "cdn", "CDN1"),
+        event(4, "playerStateChange", "buffer"),
+        event(5, "playerStateChange", "play"),
+        event(6, "playerStateChange", "buffer"),
+        event(7, "userAction", "seek"),
+        event(9, "playerStateChange", "play"),
+        event(10, "playerStateChange", "pause"),
+        event(11, "cdn", "CDN2"),
+        event(13, "playerStateChange", "buffer"),
+        event(14, "playerStateChange", "play"),
+    ]
 }
 
 #[tokio::main]
-async fn main() -> Result<(), pulsar::Error> {
+async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
 
-    let addr =
-        env::var("PULSAR_ADDRESS").ok().unwrap_or_else(|| "pulsar://127.0.0.1:6650".to_string());
-    let topic = env::var("PULSAR_TOPIC")
-        .ok()
-        .unwrap_or_else(|| "non-persistent://public/default/test".to_string());
+    let addr = env::var("PULSAR_ADDRESS").unwrap_or_else(|_| "pulsar://127.0.0.1:6650".into());
+    let topic =
+        env::var("PULSAR_TOPIC").unwrap_or_else(|_| "non-persistent://public/default/test".into());
 
     let mut builder = Pulsar::builder(addr, TokioExecutor);
-
     if let Ok(token) = env::var("PULSAR_TOKEN") {
-        let authentication = Authentication { name: "token".to_string(), data: token.into_bytes() };
-
-        builder = builder.with_auth(authentication);
+        builder = builder.with_auth(Authentication {
+            name: "token".to_string(),
+            data: token.into_bytes(),
+        });
     } else if let Ok(oauth2_cfg) = env::var("PULSAR_OAUTH2") {
-        builder = builder.with_auth_provider(OAuth2Authentication::client_credentials(
-            serde_json::from_str(oauth2_cfg.as_str())
-                .unwrap_or_else(|_| panic!("invalid oauth2 config [{}]", oauth2_cfg.as_str())),
-        ));
+        let params = serde_json::from_str(&oauth2_cfg)
+            .map_err(|e| format!("invalid PULSAR_OAUTH2 config: {e}"))?;
+        builder = builder.with_auth_provider(OAuth2Authentication::client_credentials(params));
     }
 
     let pulsar: Pulsar<_> = builder.build().await?;
-    let mut producer =
-        pulsar.producer().with_topic(topic).with_name("sample-playback-events").build().await?;
+    let mut producer = pulsar
+        .producer()
+        .with_topic(topic)
+        .with_name("sample-playback-events")
+        .build()
+        .await?;
 
-    // CIRR events
-    let events = vec![
-        Event {
-            time: 1,
-            event: vec![(
-                "playerStateChange".to_string(),
-                EventValue::StringValue("init".to_string()),
-            )],
-        },
-        Event {
-            time: 2,
-            event: vec![(
-                "cdnChange".to_string(),
-                EventValue::StringValue("CDN1".to_string()),
-            )],
-        },
-        Event {
-            time: 4,
-            event: vec![(
-                "playerStateChange".to_string(),
-                EventValue::StringValue("buffer".to_string()),
-            )],
-        },
-        Event {
-            time: 5,
-            event: vec![(
-                "playerStateChange".to_string(),
-                EventValue::StringValue("play".to_string()),
-            )],
-        },
-        Event {
-            time: 6,
-            event: vec![(
-                "playerStateChange".to_string(),
-                EventValue::StringValue("buffer".to_string()),
-            )],
-        },
-        Event {
-            time: 7,
-            event: vec![(
-                "userAction".to_string(),
-                EventValue::StringValue("seek".to_string()),
-            )],
-        },
-        Event {
-            time: 9,
-            event: vec![(
-                "playerStateChange".to_string(),
-                EventValue::StringValue("play".to_string()),
-            )],
-        },
-        Event {
-            time: 10,
-            event: vec![(
-                "playerStateChange".to_string(),
-                EventValue::StringValue("pause".to_string()),
-            )],
-        },
-        Event {
-            time: 11,
-            event: vec![(
-                "cdnChange".to_string(),
-                EventValue::StringValue("CDN2".to_string()),
-            )],
-        },
-        Event {
-            time: 13,
-            event: vec![(
-                "playerStateChange".to_string(),
-                EventValue::StringValue("buffer".to_string()),
-            )],
-        },
-        Event {
-            time: 14,
-            event: vec![(
-                "playerStateChange".to_string(),
-                EventValue::StringValue("play".to_string()),
-            )],
-        }
-    ];
-
-    for event in events {
-        producer.send(event.clone()).await?.await.unwrap();
-
-        log::info!("Sending event: {:?}", &event);
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+    for event in cirr_session() {
+        log::info!("Sending event: {event:?}");
+        producer
+            .send_non_blocking(PulsarEvent(event))
+            .await?
+            .await?;
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 
     Ok(())

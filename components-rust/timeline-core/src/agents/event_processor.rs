@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 use golem_rust::{agent_definition, agent_implementation};
 
-use common_lib::{
-    Event, EventColumnName, EventPredicate, EventValue, StateDynamicsTimeLine, StatePoint,
-    TimelineError,
-};
+use common_lib::{Event, EventColumnName, StatePoint, TimelineError};
 
-use crate::agents::helpers::*;
-use crate::types::*;
+use crate::agents::helpers::notify_parent;
+use crate::compute::LeafState;
+use crate::types::{LeafOperation, ParentRef};
 
 /// Leaf node agent. Ingests raw events and computes a leaf timeline operation.
 ///
@@ -34,7 +32,8 @@ use crate::types::*;
 pub trait EventProcessor {
     fn new(name: String) -> Self;
 
-    /// Tell this leaf what to compute.
+    /// Tell this leaf what to compute. Re-initializing with the same operation
+    /// keeps the existing state.
     fn initialize_leaf(&mut self, operation: LeafOperation);
 
     /// Wire this leaf to its parent TimelineProcessor so state changes push upward.
@@ -53,27 +52,25 @@ pub trait EventProcessor {
 }
 
 struct EventProcessorImpl {
-    operation: Option<LeafOperation>,
+    state: Option<LeafState>,
     parent: Option<ParentRef>,
     group_by_column: Option<EventColumnName>,
-    latest_event_state: StateDynamicsTimeLine<EventValue>,
-    has_existed_state: StateDynamicsTimeLine<bool>,
 }
 
 #[agent_implementation]
 impl EventProcessor for EventProcessorImpl {
     fn new(_name: String) -> Self {
         Self {
-            operation: None,
+            state: None,
             parent: None,
             group_by_column: None,
-            latest_event_state: StateDynamicsTimeLine::default(),
-            has_existed_state: StateDynamicsTimeLine::default(),
         }
     }
 
     fn initialize_leaf(&mut self, operation: LeafOperation) {
-        self.operation = Some(operation);
+        if self.state.as_ref().map(LeafState::operation) != Some(&operation) {
+            self.state = Some(LeafState::new(operation));
+        }
     }
 
     fn set_parent(&mut self, parent: ParentRef) {
@@ -85,30 +82,19 @@ impl EventProcessor for EventProcessorImpl {
     }
 
     async fn add_event(&mut self, event: Event) -> Result<(), TimelineError> {
-        let operation = self
-            .operation
-            .clone()
-            .ok_or(TimelineError::NotInitialized)?;
+        let state = self.state.as_mut().ok_or(TimelineError::NotInitialized)?;
+        let changes = state.ingest(&event);
         let group_by_value = self
             .group_by_column
             .as_ref()
-            .and_then(|column| event.value_of(column))
-            .cloned();
-
-        let changes = match &operation {
-            LeafOperation::LatestEventToState(column) => self.track_latest(column, &event),
-            LeafOperation::HasExisted(predicate) => self.track_has_existed(predicate, &event, None),
-            LeafOperation::HasExistedWithin { predicate, within } => {
-                self.track_has_existed(predicate, &event, Some(*within))
-            }
-        };
+            .and_then(|column| event.value_of(column));
 
         for change in changes {
             notify_parent(
                 self.parent.as_ref(),
                 change.time,
                 change.value,
-                group_by_value.as_ref(),
+                group_by_value,
             )
             .await;
         }
@@ -116,86 +102,7 @@ impl EventProcessor for EventProcessorImpl {
     }
 
     fn get_leaf_result(&self, t1: u64) -> Result<Option<StatePoint>, TimelineError> {
-        match self
-            .operation
-            .as_ref()
-            .ok_or(TimelineError::NotInitialized)?
-        {
-            LeafOperation::LatestEventToState(_) => Ok(to_state_point(
-                self.latest_event_state.get_state_at(t1),
-                EventValue::clone,
-            )),
-            LeafOperation::HasExisted(_) | LeafOperation::HasExistedWithin { .. } => Ok(
-                to_state_point(self.has_existed_state.get_state_at(t1), |b| {
-                    EventValue::BoolValue(*b)
-                }),
-            ),
-        }
-    }
-}
-
-/// A state transition a leaf reports to its parent.
-struct LeafChange {
-    time: u64,
-    value: EventValue,
-}
-
-impl EventProcessorImpl {
-    fn track_latest(&mut self, column: &EventColumnName, event: &Event) -> Vec<LeafChange> {
-        let Some(value) = event.value_of(column) else {
-            return vec![];
-        };
-        let previous = self
-            .latest_event_state
-            .get_state_at(event.time)
-            .map(|p| p.value.clone());
-        self.latest_event_state
-            .add_state_dynamic_info(event.time, value.clone());
-        if previous.as_ref() == Some(value) {
-            vec![]
-        } else {
-            vec![LeafChange {
-                time: event.time,
-                value: value.clone(),
-            }]
-        }
-    }
-
-    /// `has_existed` latches to `true` on the first match. With `within`, the
-    /// state reverts to `false` `within` time units after the match.
-    fn track_has_existed(
-        &mut self,
-        predicate: &EventPredicate,
-        event: &Event,
-        within: Option<u64>,
-    ) -> Vec<LeafChange> {
-        let state = &mut self.has_existed_state;
-        if !(state.is_empty() || state.future_is(false)) {
-            return vec![];
-        }
-        let time = event.time;
-        if predicate.evaluate(event) {
-            state.add_state_dynamic_info(time, true);
-            let mut changes = vec![LeafChange {
-                time,
-                value: EventValue::BoolValue(true),
-            }];
-            if let Some(within) = within {
-                state.add_state_dynamic_info(time + within, false);
-                changes.push(LeafChange {
-                    time: time + within,
-                    value: EventValue::BoolValue(false),
-                });
-            }
-            changes
-        } else if !state.future_is(false) {
-            state.add_state_dynamic_info(time, false);
-            vec![LeafChange {
-                time,
-                value: EventValue::BoolValue(false),
-            }]
-        } else {
-            vec![]
-        }
+        let state = self.state.as_ref().ok_or(TimelineError::NotInitialized)?;
+        Ok(state.state_at(t1))
     }
 }

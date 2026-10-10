@@ -1,33 +1,29 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+//! Feeds events from a Pulsar topic to the leaf agents returned by
+//! `TimelineDriver::initialize_timeline`.
+//!
+//! # Environment variables
+//! - `LEAF_AGENTS`: comma-separated leaf agent names (required)
+//! - `GOLEM_APP_DIR`: directory containing the app's `golem.yaml` (default: `.`)
+//! - `PULSAR_ADDRESS`: broker URL (default: `pulsar://127.0.0.1:6650`)
+//! - `PULSAR_TOPIC`: topic (default: `non-persistent://public/default/test`)
+//! - `PULSAR_TOKEN` or `PULSAR_OAUTH2`: optional authentication
+
 use std::env;
+use std::error::Error;
+use std::sync::Arc;
 
+use common_lib::{AgentName, Event};
 use futures::TryStreamExt;
-use log;
+use pulsar::authentication::oauth2::OAuth2Authentication;
 use pulsar::{
-    authentication::oauth2::OAuth2Authentication, Authentication, Consumer, DeserializeMessage,
-    Payload, Pulsar, SubType, TokioExecutor,
+    Authentication, Consumer, DeserializeMessage, Payload, Pulsar, SubType, TokioExecutor,
 };
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
-use tokio;
+use timeline_client::{GolemCli, TimelineClient};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Event {
-    pub time: u64,
-    pub event: Vec<(String, EventValue)>,
-}
+struct PulsarEvent;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "kebab-case")]
-pub enum EventValue {
-    StringValue(String),
-    IntValue(i64),
-    FloatValue(f64),
-    BoolValue(bool),
-}
-
-impl DeserializeMessage for Event {
+impl DeserializeMessage for PulsarEvent {
     type Output = Result<Event, serde_json::Error>;
 
     fn deserialize_message(payload: &Payload) -> Self::Output {
@@ -35,37 +31,46 @@ impl DeserializeMessage for Event {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-struct CustomBody {
-    params: Vec<Event>,
+fn leaf_agents() -> Result<Vec<AgentName>, Box<dyn Error>> {
+    let agents: Vec<AgentName> = env::var("LEAF_AGENTS")
+        .map_err(|_| "LEAF_AGENTS must be set")?
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(AgentName::new)
+        .collect();
+    if agents.is_empty() {
+        return Err("LEAF_AGENTS must name at least one agent".into());
+    }
+    Ok(agents)
 }
 
 #[tokio::main]
-async fn main() -> Result<(), pulsar::Error> {
+async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
 
-    let addr =
-        env::var("PULSAR_ADDRESS").ok().unwrap_or_else(|| "pulsar://127.0.0.1:6650".to_string());
-    let topic = env::var("PULSAR_TOPIC")
-        .ok()
-        .unwrap_or_else(|| "non-persistent://public/default/test".to_string());
+    let leaves = Arc::new(leaf_agents()?);
+    let app_dir = env::var("GOLEM_APP_DIR").unwrap_or_else(|_| ".".into());
+    let client = TimelineClient::new(GolemCli::new(app_dir));
+
+    let addr = env::var("PULSAR_ADDRESS").unwrap_or_else(|_| "pulsar://127.0.0.1:6650".into());
+    let topic =
+        env::var("PULSAR_TOPIC").unwrap_or_else(|_| "non-persistent://public/default/test".into());
 
     let mut builder = Pulsar::builder(addr, TokioExecutor);
-
     if let Ok(token) = env::var("PULSAR_TOKEN") {
-        let authentication = Authentication { name: "token".to_string(), data: token.into_bytes() };
-
-        builder = builder.with_auth(authentication);
+        builder = builder.with_auth(Authentication {
+            name: "token".to_string(),
+            data: token.into_bytes(),
+        });
     } else if let Ok(oauth2_cfg) = env::var("PULSAR_OAUTH2") {
-        builder = builder.with_auth_provider(OAuth2Authentication::client_credentials(
-            serde_json::from_str(oauth2_cfg.as_str())
-                .unwrap_or_else(|_| panic!("invalid oauth2 config [{}]", oauth2_cfg.as_str())),
-        ));
+        let params = serde_json::from_str(&oauth2_cfg)
+            .map_err(|e| format!("invalid PULSAR_OAUTH2 config: {e}"))?;
+        builder = builder.with_auth_provider(OAuth2Authentication::client_credentials(params));
     }
 
     let pulsar: Pulsar<_> = builder.build().await?;
-
-    let mut consumer: Consumer<Event, _> = pulsar
+    let mut consumer: Consumer<PulsarEvent, _> = pulsar
         .consumer()
         .with_topic(topic)
         .with_consumer_name("sample-playback-consumer")
@@ -74,47 +79,24 @@ async fn main() -> Result<(), pulsar::Error> {
         .build()
         .await?;
 
-    let client = Client::new();
-
-    let component_id = env::var("COMPONENT_ID").expect("Provide COMPONENT_ID. You can understand from the output logs of quick_test_with_api_definitions.sh which was used to register timeline with Golem");
-    let worker_name = env::var("WORKER_NAME").expect("Provide WORKER_NAME. This should correspond to the worker that directly process events. You can understand from the output logs of quick_test_with_api_definitions.sh which was used to register timeline with Golem");
-
-    let mut counter = 0usize;
     while let Some(msg) = consumer.try_next().await? {
         consumer.ack(&msg).await?;
-        log::info!("metadata: {:?}", msg.metadata());
-        log::info!("id: {:?}", msg.message_id());
-        match msg.deserialize() {
-            Ok(data) => {
-                let invoke_url =
-                    format!("http://localhost:9005/v2/components/{}/workers/{}/invoke-and-await?function={}", component_id, worker_name, "timeline:event-processor/api/add-event");
-
-                let params = json!({"params": [data]});
-
-                dbg!(params.to_string());
-
-                // Second POST request
-                let result = client
-                    .post(&invoke_url)
-                    .json(&params)
-                    .send()
-                    .await
-                    .map_err(|error| pulsar::Error::Custom(error.to_string()))?;
-
-                dbg!(result);
-            }
+        let event = match msg.deserialize() {
+            Ok(event) => event,
             Err(e) => {
-                log::error!("could not deserialize message: {:?}", e);
-                break;
+                log::error!("skipping undecodable message {:?}: {e}", msg.message_id());
+                continue;
             }
         };
 
-        counter += 1;
-
-        if counter > 10 {
-            consumer.close().await.expect("Unable to close consumer");
-            break;
-        }
+        let client = client.clone();
+        let leaves = Arc::clone(&leaves);
+        tokio::task::spawn_blocking(move || {
+            leaves
+                .iter()
+                .try_for_each(|leaf| client.add_event(leaf, &event))
+        })
+        .await??;
     }
 
     Ok(())

@@ -9,6 +9,7 @@ members = [
     "services/dashboard",
     "test/integration-harness",
 ]
+exclude = ["test/sample-event-feeder", "test/sample-event-producer"]
 
 [profile.release]
 opt-level = "s"

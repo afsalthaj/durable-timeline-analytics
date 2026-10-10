@@ -1,9 +1,17 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
-// A zip result merely represent the result of zipping two timelines
+
+/// The values that overlap on one segment when zipping two timelines,
+/// remembering which side each value came from.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ZipResult<'t, T: Clone> {
-    Both((&'t T, Box<ZipResult<'t, T>>)),
-    Singleton(&'t T, Side),
+    Both {
+        value: &'t T,
+        rest: Box<ZipResult<'t, T>>,
+    },
+    Singleton {
+        value: &'t T,
+        side: Side,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -12,7 +20,7 @@ pub enum Side {
     Right,
 }
 
-impl<'t, T: Clone + Sized> ZipResult<'t, T> {
+impl<'t, T: Clone> ZipResult<'t, T> {
     // A subtle logic to merge timeline values, by
     // keeping track of the sides in which the values existed.
     // This is to handle the situation of non-existence of values on either side when zipping two timelines, with delayed arrival of values.
@@ -30,17 +38,14 @@ impl<'t, T: Clone + Sized> ZipResult<'t, T> {
             B: Clone,
         {
             match zip_result {
-                ZipResult::Singleton(a, side) => {
-                    if let Some(prev) = prev {
-                        match side {
-                            Side::Left => f(a, prev),
-                            Side::Right => f(prev, a),
-                        }
-                    } else {
-                        (*a).clone()
-                    }
-                }
-                ZipResult::Both((a, b)) => go(Some(a), b, f),
+                ZipResult::Singleton { value, side } => match prev {
+                    Some(prev) => match side {
+                        Side::Left => f(value, prev),
+                        Side::Right => f(prev, value),
+                    },
+                    None => (*value).clone(),
+                },
+                ZipResult::Both { value, rest } => go(Some(value), rest, f),
             }
         }
 

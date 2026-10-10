@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 use common_lib::{AggregationConfig, AggregationFunction, EventColumnName};
 
-use crate::parser::{parse, ParseError};
+use crate::parser::{ParseError, parse};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 

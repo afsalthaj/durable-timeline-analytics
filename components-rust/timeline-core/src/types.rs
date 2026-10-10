@@ -5,7 +5,7 @@ use common_lib::{AgentName, CompareOp, EventColumnName, EventPredicate, EventVal
 use golem_rust::{FromWire, IntoWire, Schema, WireSchema};
 
 /// Which leaf computation an event processor performs.
-#[derive(Clone, Debug, Schema, IntoWire, FromWire, WireSchema)]
+#[derive(Clone, Debug, PartialEq, Schema, IntoWire, FromWire, WireSchema)]
 pub enum LeafOperation {
     LatestEventToState(EventColumnName),
     HasExisted(EventPredicate),
@@ -16,7 +16,7 @@ pub enum LeafOperation {
 }
 
 /// Which derived computation a timeline processor performs.
-#[derive(Clone, Debug, Schema, IntoWire, FromWire, WireSchema)]
+#[derive(Clone, Debug, PartialEq, Schema, IntoWire, FromWire, WireSchema)]
 pub enum DerivedOperation {
     Compare { op: CompareOp, value: EventValue },
     Not,

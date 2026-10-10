@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use common_lib::{AggregationConfig, EventColumnName, NumberedNode, TimeLineOp};
-use timeline_dsl::{parse, ParsedTimeline};
+use timeline_dsl::{ParsedTimeline, parse};
 
 // ── Newtypes ──
 
@@ -303,8 +303,10 @@ mod tests {
 
     #[test]
     fn parse_errors_are_reported() {
-        assert!(MetricRegistry::new()
-            .register(&request("bad", "has_existed("))
-            .is_err());
+        assert!(
+            MetricRegistry::new()
+                .register(&request("bad", "has_existed("))
+                .is_err()
+        );
     }
 }

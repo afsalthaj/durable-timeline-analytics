@@ -225,9 +225,11 @@ mod tests {
             [a, b] => a.time < b.time,
             _ => true,
         }));
-        assert!(events
-            .iter()
-            .all(|e| e.value_of(&cdn) == Some(&EventValue::StringValue("fastly".into()))));
+        assert!(
+            events
+                .iter()
+                .all(|e| e.value_of(&cdn) == Some(&EventValue::StringValue("fastly".into())))
+        );
     }
 
     #[test]

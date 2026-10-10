@@ -5,11 +5,11 @@ mod registry;
 use std::error::Error;
 use std::path::{Path as FsPath, PathBuf};
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::Json;
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 
