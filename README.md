@@ -4,11 +4,11 @@ A metric language for **what is true over time**, not just what happened in a wi
 
 [Talk from Afsal Thaj](https://www.youtube.com/watch?v=9WjUBOfgriY)
 
-Streaming engines are built for window aggregates: counts, sums, profiles. Flink, Spark, Kafka Streams, PySpark, and the in-house stacks built on them all do this well. They are weaker at the questions video-streaming and risk-ops teams actually write down:
+Streaming engines are built for window aggregates: counts, sums, profiles. Flink, Spark, Kafka Streams, PySpark, and the in-house stacks built on them all do this well. They are weaker at the questions video-streaming and finance / risk-ops teams actually write down:
 
 **Video streaming.** Has play ever started, was there *no* seek in the last 5 seconds, and is the player *currently* buffering — and **for how long** has that been true?
 
-**Risk ops.** Has this card ever been used present, was there *no* successful PIN in the last 60 seconds, and is the merchant *currently* in a new country — and **for how long** has that been true?
+**Finance.** Has this card ever been used present, was there *no* successful PIN in the last 60 seconds, and is the merchant *currently* in a new country — and **for how long** has that been true?
 
 Those are **states of affairs**, not hop windows. This project compiles that sentence into a live computation graph. Each clause is its own durable worker. Events push changes up the tree. A query at time *t* is a local lookup — no replay.
 
@@ -58,10 +58,14 @@ duration_where(
 ) | aggregate(group_by(cdn), count, sum, avg)
 ```
 
-Card-present anomaly — the location just changed:
+Finance — card-present, no recent PIN, merchant in a new country:
 
 ```javascript
-duration_in_cur_state(latest_event_to_state(location)) < 600
+duration_where(
+  has_existed(channel == "present")
+  && !has_existed_within(pinResult == "success", 60)
+  && latest_event_to_state(merchantCountry) == "FR"
+) | aggregate(group_by(issuer), count, sum, avg)
 ```
 
 Idle time by region:
