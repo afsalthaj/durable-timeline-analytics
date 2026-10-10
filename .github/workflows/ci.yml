@@ -2,13 +2,12 @@ name: Build
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [master]
   pull_request:
-    branches: [ "master" ]
 
 env:
   CARGO_TERM_COLOR: always
-  GOLEM_VERSION: "1.4.1"
+  GOLEM_VERSION: "1.6.0-rc1"
 
 jobs:
   build:
@@ -20,28 +19,24 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Install wasm32-wasip1 target
-        run: rustup target add wasm32-wasip1
+        with:
+          targets: wasm32-wasip2
 
       - uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install cargo-component
-        run: cargo install --force cargo-component@0.21.1
-
       - name: Install Golem CLI
         run: |
-          curl -L -o golem https://github.com/golemcloud/golem/releases/download/v${GOLEM_VERSION}/golem-x86_64-unknown-linux-gnu
+          curl -fsSL -o golem "https://github.com/golemcloud/golem/releases/download/v${GOLEM_VERSION}/golem-x86_64-unknown-linux-gnu"
           chmod +x golem
           sudo mv golem /usr/local/bin/
+          golem --version
 
       - name: Build
-        run: golem build
+        run: golem build --yes
