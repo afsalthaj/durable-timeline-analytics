@@ -4,7 +4,7 @@ A metric language for **what is true over time**, not just what happened in a wi
 
 [Talk from Afsal Thaj](https://www.youtube.com/watch?v=9WjUBOfgriY)
 
-Streaming engines are built for window aggregates: counts, sums, profiles. Flink, Spark, Kafka Streams, PySpark, and the in-house stacks built on them all do this well. They are weaker at the questions fraud, QoE, and risk teams actually write down:
+Streaming engines are built for window aggregates: counts, sums, profiles. Flink, Spark, Kafka Streams, PySpark, and the in-house stacks built on them all do this well. They are weaker at the questions video-streaming and risk-ops teams actually write down:
 
 **Video streaming.** Has play ever started, was there *no* seek in the last 5 seconds, and is the player *currently* buffering — and **for how long** has that been true?
 
