@@ -26,6 +26,7 @@
       --siri-mid: #6366F1;
       --rose: #DA2C5A;
       --siri-gradient: linear-gradient(135deg, #DA2C5A 0%, #6366F1 50%, #02A7D1 100%);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -66,7 +67,7 @@
     .guide .lead { color: var(--text-muted); font-size: 14px; margin-bottom: 28px; line-height: 1.7; }
     .dsl-block {
       background: var(--surface); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;
-      padding: 20px 24px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px;
+      padding: 20px 24px; font-family: var(--mono); font-size: 13px;
       line-height: 1.8; color: var(--text); margin-bottom: 36px; white-space: pre; overflow-x: auto;
       border-left: 3px solid var(--rose);
       box-shadow: 0 2px 8px rgba(0,0,0,0.25);
@@ -83,7 +84,7 @@
     .step-body p { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
     .step-body code {
       display: block; background: var(--surface); border: 1px solid var(--border);
-      border-radius: 6px; padding: 10px 14px; font-family: 'SF Mono', 'Fira Code', monospace;
+      border-radius: 6px; padding: 10px 14px; font-family: var(--mono);
       font-size: 12.5px; color: var(--green); margin-top: 8px; white-space: pre; overflow-x: auto;
       box-shadow: 0 1px 3px rgba(0,0,0,0.2);
     }
@@ -176,7 +177,7 @@
     .node-badge.leaf { background: rgba(2,167,209,0.12); color: var(--leaf-color); }
     .node-badge.derived { background: rgba(167,139,250,0.1); color: var(--derived-color); }
     .node-name {
-      font-size: 13px; font-weight: 600; font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 13px; font-weight: 600; font-family: var(--mono);
       white-space: pre-wrap; line-height: 1.45; max-width: 720px;
     }
     .inspect-children {
@@ -200,7 +201,7 @@
     }
     .dsl-editor-wrap pre.dsl-highlight {
       position: absolute; top: 1px; left: 1px; right: 1px; bottom: 1px; margin: 0;
-      padding: 10px 14px; font-family: 'SF Mono', 'Fira Code', monospace;
+      padding: 10px 14px; font-family: var(--mono);
       font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word;
       pointer-events: none; overflow: auto; color: var(--text); background: transparent;
       border-radius: 6px;
@@ -208,7 +209,7 @@
     textarea.dsl-editor {
       width: 100%; min-height: 110px; background: var(--surface);
       border: 1px solid rgba(255,255,255,0.06); color: transparent; caret-color: var(--text);
-      border-radius: 6px; padding: 10px 14px; font-family: 'SF Mono', 'Fira Code', monospace;
+      border-radius: 6px; padding: 10px 14px; font-family: var(--mono);
       font-size: 12px; line-height: 1.6; resize: none; outline: none;
       box-shadow: inset 0 1px 4px rgba(0,0,0,0.2);
     }
@@ -244,7 +245,7 @@
     .tree-node-box.derived { border-left: 3px solid var(--derived-color); }
     .tree-node-box.agg { border-left: 3px solid var(--rose); }
     .tree-node-box .tn-label {
-      font-family: 'SF Mono', 'Fira Code', monospace; font-weight: 600; color: var(--text);
+      font-family: var(--mono); font-weight: 600; color: var(--text);
       white-space: pre-wrap; max-width: 640px; line-height: 1.4;
     }
     .tree-node-box .tn-badge {
@@ -287,7 +288,7 @@
       padding: 6px 12px 6px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
     }
     .routing-table td {
-      padding: 6px 12px 6px 0; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px;
+      padding: 6px 12px 6px 0; font-family: var(--mono); font-size: 12px;
     }
     .section-title {
       font-size: 15px; font-weight: 600; margin-bottom: 14px; margin-top: 28px;
@@ -323,7 +324,7 @@
     .tl-segment {
       position: absolute; top: 0; bottom: 0; display: flex; align-items: center;
       justify-content: center; font-size: 10px; font-weight: 600;
-      font-family: 'SF Mono', 'Fira Code', monospace; color: #fff;
+      font-family: var(--mono); color: #fff;
       overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
       border-right: 1px solid rgba(0,0,0,0.3); min-width: 2px;
       transition: left .3s, width .3s;
@@ -336,7 +337,7 @@
     .tl-axis {
       display: flex; justify-content: space-between; font-size: 9px;
       color: var(--text-muted); margin-top: 2px; padding: 0 2px;
-      font-family: 'SF Mono', 'Fira Code', monospace; font-variant-numeric: tabular-nums;
+      font-family: var(--mono); font-variant-numeric: tabular-nums;
     }
     @keyframes pulse-live {
       0%, 100% { opacity: 1; }
@@ -675,6 +676,10 @@
       }
     });
 
+    function quotePredicate(expr) {
+      return expr.replace(/==\s*([^"'\s),]+)/g, '== "$1"');
+    }
+
     function quoteLiteral(value) {
       if (value === '' || value == null) return '""';
       if (/^-?\d+(\.\d+)?$/.test(value)) return value;
@@ -682,10 +687,6 @@
         return value;
       }
       return '"' + value + '"';
-    }
-
-    function wrapAnd(left, right, op) {
-      return left + '\n  ' + op + ' ' + right;
     }
 
     // Labels in the DSL the user wrote, built from the child tree.
@@ -698,12 +699,12 @@
 
       const ever = desc.match(/Has (.+?) ever been true/);
       if (ever) {
-        return { dsl: 'has_existed(' + ever[1] + ')', hint: 'Has this ever happened?' };
+        return { dsl: 'has_existed(' + quotePredicate(ever[1]) + ')', hint: 'Has this ever happened?' };
       }
       const within = desc.match(/Has (.+?) been true within the last (\d+)/);
       if (within) {
         return {
-          dsl: 'has_existed_within(' + within[1] + ', ' + within[2] + ')',
+          dsl: 'has_existed_within(' + quotePredicate(within[1]) + ', ' + within[2] + ')',
           hint: 'True if it happened in the last ' + within[2] + ' time units',
         };
       }
@@ -715,8 +716,8 @@
         };
       }
       if (op === 'not' && a) return { dsl: '!' + a, hint: 'The opposite of the clause below' };
-      if (op === 'and' && a && b) return { dsl: wrapAnd(a, b, '&&'), hint: 'True only when both sides are true' };
-      if (op === 'or' && a && b) return { dsl: wrapAnd(a, b, '||'), hint: 'True when either side is true' };
+      if (op === 'and') return { dsl: '&&', hint: 'True when every clause below is true' };
+      if (op === 'or') return { dsl: '||', hint: 'True when any clause below is true' };
       if (op === 'duration-where' && a) {
         return { dsl: 'duration_where(…)', hint: 'How long the condition below has been true' };
       }
@@ -787,7 +788,29 @@
         const named = dslFrom(node, children);
         return { ...node, children, label: named.dsl, hint: named.hint, dsl: named.dsl };
       }
-      return buildNode();
+      return flattenBool(buildNode());
+    }
+
+    // The parser builds binary && / ||. Show one node with every clause under it.
+    function flattenBool(node) {
+      if (!node) return node;
+      const children = (node.children || []).map(flattenBool);
+      if (node.operation !== 'and' && node.operation !== 'or') {
+        return { ...node, children };
+      }
+      const flat = [];
+      for (const child of children) {
+        if (child.operation === node.operation) {
+          flat.push.apply(flat, child.children);
+        } else {
+          flat.push(child);
+        }
+      }
+      const symbol = node.operation === 'and' ? '&&' : '||';
+      const hint = node.operation === 'and'
+        ? 'True when every clause below is true'
+        : 'True when any clause below is true';
+      return { ...node, children: flat, label: symbol, hint, dsl: symbol };
     }
 
     function renderTreeNodeHtml(node, isRoot) {
@@ -981,17 +1004,19 @@
       }
     }
 
-    function rememberPoint(suffix, result) {
+    function rememberPoint(suffix, result, t) {
       const pts = getTimelinePoints(result);
       if (!pts.length) return;
-      const pt = pts[0];
+      const raw = pts[0].value;
+      const value = formatEventValue(raw);
       const list = replayHistory[suffix] || (replayHistory[suffix] = []);
-      const value = formatEventValue(pt.value);
-      if (list.some((existing) => existing.t1 === pt.t1 && formatEventValue(existing.value) === value)) {
+      const last = list[list.length - 1];
+      if (last && formatEventValue(last.value) === value) {
+        last.t2 = t + 1;
         return;
       }
-      list.push(pt);
-      list.sort((a, b) => a.t1 - b.t1);
+      if (last) last.t2 = t;
+      list.push({ t1: t, t2: t + 1, value: raw });
     }
 
     async function queryAllNodes(playing) {
@@ -1003,7 +1028,7 @@
       const nodes = buildNodeList();
       let results = await Promise.all(nodes.map(n => queryNode(session, t1, n)));
       if (playing) {
-        for (const r of results) rememberPoint(r.suffix, r.result);
+        for (const r of results) rememberPoint(r.suffix, r.result, t1);
         results = results.map((r) => ({
           ...r,
           result: { results: replayHistory[r.suffix] || [] },
