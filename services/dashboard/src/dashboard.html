@@ -177,6 +177,14 @@
     .node-badge.derived { background: rgba(167,139,250,0.1); color: var(--derived-color); }
     .node-name {
       font-size: 13px; font-weight: 600; font-family: 'SF Mono', 'Fira Code', monospace;
+      white-space: pre-wrap; line-height: 1.45; max-width: 720px;
+    }
+    .inspect-children {
+      margin-left: 18px; padding-left: 16px;
+      border-left: 2px solid var(--border);
+    }
+    .inspect-dsl {
+      margin-bottom: 20px;
     }
     .node-result {
       margin-left: auto; font-size: 13px; font-weight: 600;
@@ -237,6 +245,7 @@
     .tree-node-box.agg { border-left: 3px solid var(--rose); }
     .tree-node-box .tn-label {
       font-family: 'SF Mono', 'Fira Code', monospace; font-weight: 600; color: var(--text);
+      white-space: pre-wrap; max-width: 640px; line-height: 1.4;
     }
     .tree-node-box .tn-badge {
       font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 3px;
@@ -455,6 +464,7 @@
     <div id="inspect-metric-list" class="metric-list">
       <div class="empty-state" style="padding:20px"><p>No metrics registered. Deploy one first.</p></div>
     </div>
+    <pre id="inspect-dsl" class="dsl-block inspect-dsl" style="display:none"></pre>
 
     <div class="controls">
       <label for="session-input">Session ID:</label>
@@ -665,48 +675,71 @@
       }
     });
 
-    // Build a friendly label + hint from a node's operation/description.
-    // Returns { label, hint }.
-    function friendlyLabel(node) {
-      if (node.kind === 'leaf') {
-        const s = node.agent_suffix;
-        const desc = node.description || '';
-        if (s.startsWith('has-existed-within-')) {
-          const m = desc.match(/Has (.+?) been true within the last (\d+)/);
-          if (m) return { label: m[1].replace(/ == /g, '-is-').replace(/\s+/g, '-') + '-within-' + m[2],
-            hint: 'true if ' + m[1] + ' was seen in the last ' + m[2] + ' time units' };
-        }
-        if (s.startsWith('has-existed-')) {
-          const m = desc.match(/Has (.+?) ever been true/);
-          if (m) return { label: m[1].replace(/ == /g, '-is-').replace(/\s+/g, '-') + '-ever-true',
-            hint: 'true once ' + m[1] + ' has been seen at least once' };
-        }
-        if (s.startsWith('latest-event-to-state-')) {
-          const m = desc.match(/latest value of "(.+?)"/);
-          if (m) return { label: m[1] + '-state-changes',
-            hint: 'tracks the latest value of "' + m[1] + '" from source events' };
-        }
-        return { label: s.replace(/-\d+$/, ''), hint: 'receives source events' };
+    function quoteLiteral(value) {
+      if (value === '' || value == null) return '""';
+      if (/^-?\d+(\.\d+)?$/.test(value)) return value;
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        return value;
       }
+      return '"' + value + '"';
+    }
+
+    function wrapAnd(left, right, op) {
+      return left + '\n  ' + op + ' ' + right;
+    }
+
+    // Labels in the DSL the user wrote, built from the child tree.
+    function dslFrom(node, children) {
+      const desc = node.description || '';
       const op = node.operation || '';
-      if (op === 'not') return { label: 'not', hint: 'negate the child timeline' };
-      if (op === 'and') return { label: 'and', hint: 'true only when all children are true' };
-      if (op === 'or') return { label: 'or', hint: 'true when any child is true' };
-      if (op === 'duration-where') return { label: 'cumulative-duration',
-        hint: 'counts the total time the child timeline\'s state is true' };
-      if (op === 'duration-in-cur-state') return { label: 'current-state-duration',
-        hint: 'how long the child has been in its current state' };
-      if (op.startsWith('equal-to(')) return { label: 'equals-' + op.slice(9, -1),
-        hint: 'true when child\'s value equals ' + op.slice(9, -1) };
-      if (op.startsWith('greater-than(')) return { label: 'greater-than-' + op.slice(13, -1),
-        hint: 'true when child\'s value > ' + op.slice(13, -1) };
-      if (op.startsWith('greater-than-or-equal(')) return { label: 'at-least-' + op.slice(21, -1),
-        hint: 'true when child\'s value ≥ ' + op.slice(21, -1) };
-      if (op.startsWith('less-than(')) return { label: 'less-than-' + op.slice(9, -1),
-        hint: 'true when child\'s value < ' + op.slice(9, -1) };
-      if (op.startsWith('less-than-or-equal(')) return { label: 'at-most-' + op.slice(18, -1),
-        hint: 'true when child\'s value ≤ ' + op.slice(18, -1) };
-      return { label: op, hint: '' };
+      const suffix = String(node.agent_suffix || '');
+      const a = children[0] && children[0].dsl;
+      const b = children[1] && children[1].dsl;
+
+      const ever = desc.match(/Has (.+?) ever been true/);
+      if (ever) {
+        return { dsl: 'has_existed(' + ever[1] + ')', hint: 'Has this ever happened?' };
+      }
+      const within = desc.match(/Has (.+?) been true within the last (\d+)/);
+      if (within) {
+        return {
+          dsl: 'has_existed_within(' + within[1] + ', ' + within[2] + ')',
+          hint: 'True if it happened in the last ' + within[2] + ' time units',
+        };
+      }
+      const latest = desc.match(/latest value of "(.+?)"/i);
+      if (latest) {
+        return {
+          dsl: 'latest_event_to_state(' + latest[1] + ')',
+          hint: 'Current value of ' + latest[1],
+        };
+      }
+      if (op === 'not' && a) return { dsl: '!' + a, hint: 'The opposite of the clause below' };
+      if (op === 'and' && a && b) return { dsl: wrapAnd(a, b, '&&'), hint: 'True only when both sides are true' };
+      if (op === 'or' && a && b) return { dsl: wrapAnd(a, b, '||'), hint: 'True when either side is true' };
+      if (op === 'duration-where' && a) {
+        return { dsl: 'duration_where(…)', hint: 'How long the condition below has been true' };
+      }
+      if (op === 'duration-in-cur-state' && a) {
+        return { dsl: 'duration_in_cur_state(…)', hint: 'How long the child has been in its current state' };
+      }
+      if (op.startsWith('equal-to(') && a) {
+        const value = quoteLiteral(op.slice(9, -1));
+        return { dsl: a + ' == ' + value, hint: 'True when that state is ' + value };
+      }
+      if (op.startsWith('greater-than(') && a) {
+        return { dsl: a + ' > ' + quoteLiteral(op.slice(13, -1)), hint: 'Compare the child to a constant' };
+      }
+      if (op.startsWith('greater-than-or-equal(') && a) {
+        return { dsl: a + ' >= ' + quoteLiteral(op.slice(21, -1)), hint: 'Compare the child to a constant' };
+      }
+      if (op.startsWith('less-than(') && a) {
+        return { dsl: a + ' < ' + quoteLiteral(op.slice(9, -1)), hint: 'Compare the child to a constant' };
+      }
+      if (op.startsWith('less-than-or-equal(') && a) {
+        return { dsl: a + ' <= ' + quoteLiteral(op.slice(18, -1)), hint: 'Compare the child to a constant' };
+      }
+      return { dsl: suffix.replace(/-\d+$/, '') || op || 'node', hint: desc };
     }
 
     // Reconstruct the tree from flat leaves + derived_nodes arrays.
@@ -751,8 +784,8 @@
             if (child) children.push(child);
           }
         }
-        const fl = friendlyLabel(node);
-        return { ...node, children, label: fl.label, hint: fl.hint };
+        const named = dslFrom(node, children);
+        return { ...node, children, label: named.dsl, hint: named.hint, dsl: named.dsl };
       }
       return buildNode();
     }
@@ -885,6 +918,7 @@
             el.querySelectorAll('.metric-item').forEach(i => i.classList.remove('active'));
             item.classList.add('active');
             selectedMetric = el._metrics.find(m => m.name === item.dataset.metricName);
+            showInspectDsl(selectedMetric);
           });
         });
         if (!selectedMetric && metrics.length) {
@@ -892,7 +926,16 @@
           const first = el.querySelector('.metric-item');
           if (first) first.classList.add('active');
         }
+        showInspectDsl(selectedMetric);
       } catch (e) { /* ignore */ }
+    }
+
+    function showInspectDsl(metric) {
+      const box = document.getElementById('inspect-dsl');
+      if (!box) return;
+      if (!metric) { box.style.display = 'none'; box.textContent = ''; return; }
+      box.style.display = '';
+      box.textContent = metric.dsl;
     }
 
     const sessionInput = document.getElementById('session-input');
@@ -1027,16 +1070,6 @@
     snapshotBtn.addEventListener('click', () => { stopStream(); queryAllNodes(false); });
 
     function renderInspectTree(session, t1, results, axis) {
-      // Find the root node (lowest counter among derived = first in DFS = the root)
-      let rootSuffix = null;
-      let rootCounter = Infinity;
-      for (const r of results) {
-        if (r.type === 'derived') {
-          const num = parseInt(r.suffix.replace(/.*-/, ''), 10);
-          if (num < rootCounter) { rootCounter = num; rootSuffix = r.suffix; }
-        }
-      }
-
       let globalMin = axis ? axis.globalMin : Infinity;
       let globalMax = axis ? axis.globalMax : 0;
       if (!axis) {
@@ -1053,45 +1086,68 @@
       if (globalMin === Infinity) globalMin = 0;
       if (globalMax === 0) globalMax = 1;
       const playheadAt = axis ? axis.playhead : null;
+      const bySuffix = {};
+      for (const r of results) bySuffix[r.suffix] = r;
+      const tree = rebuildTree(selectedMetric);
 
-      // Enrich results with friendly labels
-      const enriched = results.map(r => {
-        const fl = friendlyLabel({ kind: r.type, agent_suffix: r.suffix, description: r.desc, operation: r.op });
-        return { ...r, label: fl.label, hint: fl.hint, isRoot: r.suffix === rootSuffix };
-      });
+      function zip(node, isRoot) {
+        if (!node) return null;
+        const queried = bySuffix[node.agent_suffix] || {};
+        return {
+          ...node,
+          ...queried,
+          suffix: node.agent_suffix,
+          isRoot,
+          children: (node.children || []).map((child) => zip(child, false)),
+        };
+      }
+      const rooted = zip(tree, true);
 
       let html = '<div class="result-section">' +
         '<div class="agent-name">Session: <code>' + escHtml(session) +
         '</code> — Metric: <code>' + escHtml(selectedMetric.name) +
         '</code> at t = <code>' + t1 + '</code></div>';
 
-      // Shared time axis at the top
       html += '<div class="tl-axis" style="margin-bottom:8px;font-size:11px">' +
         '<span>t = ' + globalMin + '</span><span>t = ' + globalMax + '</span></div>';
 
-      for (const r of enriched) {
-        const currentValue = r.status === 'ok' ? summarizeResult(r.result) : '—';
-        const valueCls = r.status === 'ok' ? 'ok' : 'err';
-        const rootTag = r.isRoot ? ' <span style="color:var(--rose);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">★ root</span>' : '';
-        html += '<div class="node-card ' + r.type + '"' + (r.isRoot ? ' style="border-color:var(--rose);box-shadow:0 0 12px rgba(218,44,90,0.15)"' : '') + '>' +
-          '<div class="node-header">' +
-            '<span class="node-name">' + escHtml(r.label) + rootTag + '</span>' +
-            '<span class="node-result ' + valueCls + '">' + escHtml(currentValue) + '</span>' +
-          '</div>' +
-          (r.hint ? '<div class="node-desc">' + escHtml(r.hint) + '</div>' : '');
-
-        if (r.status === 'err') {
-          html += '<div class="error-msg" style="margin-top:8px">' + escHtml(r.error) + '</div>';
-        } else {
-          const prev = prevPointCounts[r.suffix];
-          html += renderTimelineBar(r.result, prev, r.isRoot, globalMin, globalMax, playheadAt);
-        }
-
-        html += '</div>';
+      if (rooted) {
+        html += renderInspectNode(rooted, globalMin, globalMax, playheadAt);
       }
 
       html += '</div>';
       treeOutput.innerHTML = html;
+    }
+
+    function renderInspectNode(r, globalMin, globalMax, playheadAt) {
+      const currentValue = r.status === 'ok' ? summarizeResult(r.result) : (r.status === 'err' ? '—' : '—');
+      const valueCls = r.status === 'ok' ? 'ok' : (r.status === 'err' ? 'err' : 'pending');
+      const rootTag = r.isRoot ? ' <span style="color:var(--rose);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">metric</span>' : '';
+      let html = '<div class="inspect-node">' +
+        '<div class="node-card ' + (r.kind || r.type || '') + '"' + (r.isRoot ? ' style="border-color:var(--rose);box-shadow:0 0 12px rgba(218,44,90,0.15)"' : '') + '>' +
+          '<div class="node-header">' +
+            '<span class="node-name">' + escHtml(r.label || r.dsl || '') + rootTag + '</span>' +
+            '<span class="node-result ' + valueCls + '">' + escHtml(currentValue) + '</span>' +
+          '</div>' +
+          (r.hint ? '<div class="node-desc">' + escHtml(r.hint) + '</div>' : '');
+
+      if (r.status === 'err') {
+        html += '<div class="error-msg" style="margin-top:8px">' + escHtml(r.error) + '</div>';
+      } else if (r.status === 'ok') {
+        const prev = prevPointCounts[r.suffix];
+        html += renderTimelineBar(r.result, prev, r.isRoot, globalMin, globalMax, playheadAt);
+      }
+
+      html += '</div>';
+      if (r.children && r.children.length) {
+        html += '<div class="inspect-children">';
+        for (const child of r.children) {
+          html += renderInspectNode(child, globalMin, globalMax, playheadAt);
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+      return html;
     }
 
     // ========== Live Dashboard ==========
