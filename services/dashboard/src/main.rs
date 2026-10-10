@@ -177,12 +177,51 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .layer(CorsLayer::permissive())
         .with_state(state);
 
-    let port: u16 = match std::env::var("DASHBOARD_PORT") {
-        Ok(value) => value.parse()?,
-        Err(_) => 3000,
-    };
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
+    let requested = requested_dashboard_port()?;
+    let (listener, port) = bind_dashboard(requested).await?;
     println!("Dashboard running at http://localhost:{port}");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+struct RequestedPort {
+    port: u16,
+    exclusive: bool,
+}
+
+fn requested_dashboard_port() -> Result<RequestedPort, Box<dyn Error>> {
+    match std::env::var("DASHBOARD_PORT") {
+        Ok(value) => Ok(RequestedPort {
+            port: value.parse()?,
+            exclusive: true,
+        }),
+        Err(_) => Ok(RequestedPort {
+            port: 3000,
+            exclusive: false,
+        }),
+    }
+}
+
+async fn bind_dashboard(
+    requested: RequestedPort,
+) -> Result<(tokio::net::TcpListener, u16), Box<dyn Error>> {
+    let last = if requested.exclusive {
+        requested.port
+    } else {
+        requested.port.saturating_add(20)
+    };
+    let mut last_err = None;
+    for port in requested.port..=last {
+        match tokio::net::TcpListener::bind(("0.0.0.0", port)).await {
+            Ok(listener) => return Ok((listener, port)),
+            Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
+                last_err = Some(error);
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    match last_err {
+        Some(error) => Err(error.into()),
+        None => Err("no dashboard port available".into()),
+    }
 }

@@ -114,17 +114,45 @@ KAFKA_TOPIC=timeline-events SESSION_COUNT=9 EVENTS_PER_SESSION=50 cargo run -p k
 echo "    Events published to Kafka topic 'timeline-events'."
 
 # --- Start dashboard ---
-echo ""
-echo "==> Starting dashboard at http://localhost:3000 ..."
-KAFKA_BROKER=localhost:9092 KAFKA_TOPIC=timeline-events cargo run -p dashboard &
+if [ -z "${DASHBOARD_PORT:-}" ]; then
+    for p in $(seq 3000 3020); do
+        if ! nc -z 127.0.0.1 "$p" 2>/dev/null; then
+            DASHBOARD_PORT=$p
+            break
+        fi
+    done
+fi
+if [ -z "${DASHBOARD_PORT:-}" ]; then
+    echo "ERROR: no free port in 3000-3020"
+    exit 1
+fi
+if [ "$DASHBOARD_PORT" != 3000 ]; then
+    echo "==> Port 3000 is in use; starting dashboard at http://localhost:$DASHBOARD_PORT ..."
+else
+    echo "==> Starting dashboard at http://localhost:$DASHBOARD_PORT ..."
+fi
+KAFKA_BROKER=localhost:9092 KAFKA_TOPIC=timeline-events DASHBOARD_PORT="$DASHBOARD_PORT" cargo run -p dashboard &
 DASH_PID=$!
 
-# Wait for dashboard to start
-sleep 3
+for i in $(seq 1 60); do
+    if nc -z 127.0.0.1 "$DASHBOARD_PORT" 2>/dev/null; then
+        break
+    fi
+    if ! kill -0 "$DASH_PID" 2>/dev/null; then
+        echo "ERROR: dashboard exited before binding to port $DASHBOARD_PORT"
+        wait "$DASH_PID" || true
+        exit 1
+    fi
+    sleep 1
+done
+nc -z 127.0.0.1 "$DASHBOARD_PORT" 2>/dev/null || {
+    echo "ERROR: dashboard did not bind to port $DASHBOARD_PORT"
+    exit 1
+}
 
 echo ""
 echo "════════════════════════════════════════════════════════════════"
-echo "  Dashboard running at http://localhost:3000"
+echo "  Dashboard running at http://localhost:$DASHBOARD_PORT"
 echo ""
 echo "  1. Click the 'Deploy Metric' tab"
 echo "  2. Enter a metric name (e.g., 'cirr') and the DSL expression"

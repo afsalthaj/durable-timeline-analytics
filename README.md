@@ -24,7 +24,7 @@ cargo make demo
 
 Docker, Rust ≥ 1.94 (`wasm32-wasip2`), and [Golem CLI 1.6+](https://learn.golem.cloud). That's it.
 
-It starts Golem and Kafka, deploys CIRR across three CDNs, feeds playback events, and opens [http://localhost:3000](http://localhost:3000). Then try:
+It starts Golem and Kafka, deploys CIRR across three CDNs, feeds playback events, and opens the dashboard at http://localhost:3000 (or the next free port). Then try:
 
 - **Computation Progress** → `demo-akamai-1` → query at time `250` — every clause of CIRR, live
 - Same session, time `120` — play has started, buffering has not
