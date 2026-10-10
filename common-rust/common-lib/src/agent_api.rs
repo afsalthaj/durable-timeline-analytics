@@ -29,8 +29,40 @@ impl Display for SessionId {
     }
 }
 
-/// Name of a Golem agent, e.g. `sess-42-has-existed-4`.
+/// Name of a registered metric, e.g. `cirr`. Scopes the agents of one
+/// metric so several metrics can run on the same session.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+#[cfg_attr(
+    feature = "golem",
+    derive(
+        golem_rust::Schema,
+        golem_rust::IntoWire,
+        golem_rust::FromWire,
+        golem_rust::WireSchema
+    ),
+    schema(transparent)
+)]
+pub struct MetricName(pub String);
+
+impl MetricName {
+    pub fn new(name: impl Into<String>) -> Self {
+        MetricName(name.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Display for MetricName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Name of a Golem agent, e.g. `sess-42-cirr-has-existed-4`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 #[cfg_attr(
     feature = "golem",
@@ -53,14 +85,21 @@ impl AgentName {
         &self.0
     }
 
-    /// The agent computing `node` for `session`, e.g. `sess-42-has-existed-4`.
-    pub fn for_node(session: &SessionId, node: &NumberedNode<'_>) -> Self {
-        AgentName(format!("{session}-{}", node.suffix()))
+    /// The agent computing `node` of `metric` for `session`,
+    /// e.g. `sess-42-cirr-has-existed-4`.
+    pub fn for_node(session: &SessionId, metric: &MetricName, node: &NumberedNode<'_>) -> Self {
+        AgentName(format!("{session}-{metric}-{}", node.suffix()))
     }
 
-    /// The aggregator for one group, e.g. `aggregator-cdn-akamai`.
-    pub fn for_aggregator(group_by_column: &EventColumnName, group_value: &EventValue) -> Self {
-        AgentName(format!("aggregator-{group_by_column}-{group_value}"))
+    /// The aggregator for one group of `metric`, e.g. `aggregator-cirr-cdn-akamai`.
+    pub fn for_aggregator(
+        metric: &MetricName,
+        group_by_column: &EventColumnName,
+        group_value: &EventValue,
+    ) -> Self {
+        AgentName(format!(
+            "aggregator-{metric}-{group_by_column}-{group_value}"
+        ))
     }
 }
 
@@ -129,7 +168,8 @@ pub struct InitializeResult {
     pub leaf_agents: Vec<AgentName>,
 }
 
-/// Aggregated metrics across all sessions of one group.
+/// Aggregated metrics across all sessions of one group. `min` and `max` are
+/// `None` when no session has reported yet.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "golem",
@@ -160,13 +200,13 @@ mod tests {
         let names: Vec<AgentName> = op
             .numbered_nodes()
             .iter()
-            .map(|node| AgentName::for_node(&session, node))
+            .map(|node| AgentName::for_node(&session, &MetricName::new("m"), node))
             .collect();
         assert_eq!(
             names,
             vec![
-                AgentName::new("sess-42-not-1"),
-                AgentName::new("sess-42-latest-event-to-state-2")
+                AgentName::new("sess-42-m-not-1"),
+                AgentName::new("sess-42-m-latest-event-to-state-2")
             ]
         );
     }
@@ -174,9 +214,10 @@ mod tests {
     #[test]
     fn aggregator_agent_name() {
         let name = AgentName::for_aggregator(
+            &MetricName::new("cirr"),
             &EventColumnName::new("cdn"),
             &EventValue::StringValue("akamai".into()),
         );
-        assert_eq!(name, AgentName::new("aggregator-cdn-akamai"));
+        assert_eq!(name, AgentName::new("aggregator-cirr-cdn-akamai"));
     }
 }

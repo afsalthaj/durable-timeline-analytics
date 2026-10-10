@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
-use common_lib::{AgentName, AggregationConfig, EventValue};
+use common_lib::{AgentName, EventValue};
 
 use crate::agents::aggregator::AggregatorClient;
 use crate::agents::timeline_processor::TimelineProcessorClient;
-use crate::types::{ChildStateChange, ParentRef};
+use crate::compute::AggregatorLink;
+use crate::types::{AggregationTarget, ChildStateChange, ParentRef, SessionReport, SessionValue};
 
 pub(crate) async fn notify_parent(
     parent: Option<&ParentRef>,
@@ -24,45 +25,39 @@ pub(crate) async fn notify_parent(
     }
 }
 
-/// Tracks what the root node last reported to its aggregator.
-#[derive(Default)]
-pub(crate) struct AggregatorLink {
-    pub aggregator: Option<AgentName>,
-    pub last_reported: Option<f64>,
+/// What a root node reports to its aggregator after a change at `time`.
+pub(crate) struct RootUpdate<'a> {
+    pub session: &'a AgentName,
+    pub time: u64,
+    pub value: SessionValue,
+    pub group_by_value: &'a EventValue,
 }
 
+/// Reports a root node's value to the aggregator of its current group, moving
+/// the session out of its previous group's aggregator if the group changed.
 pub(crate) async fn notify_aggregator(
-    aggregation: Option<&AggregationConfig>,
+    target: &AggregationTarget,
     link: &mut AggregatorLink,
-    value: &EventValue,
-    group_by_value: Option<&EventValue>,
+    update: RootUpdate<'_>,
 ) {
-    let Some(config) = aggregation else {
+    let aggregator = AgentName::for_aggregator(
+        &target.metric,
+        &target.config.group_by_column,
+        update.group_by_value,
+    );
+    let Some(route) = link.route(aggregator, update.value) else {
         return;
     };
-    let Some(group_value) = group_by_value else {
-        return;
-    };
-    let Some(new_value) = value.as_f64() else {
-        return;
-    };
-
-    let delta = new_value - link.last_reported.unwrap_or(0.0);
-    link.last_reported = Some(new_value);
-
-    if delta == 0.0 {
-        return;
+    if let Some(previous) = route.remove_from {
+        AggregatorClient::get(previous.0)
+            .remove_session(update.session.clone())
+            .await;
     }
-
-    let first_call = link.aggregator.is_none();
-    let name = link
-        .aggregator
-        .get_or_insert_with(|| AgentName::for_aggregator(&config.group_by_column, group_value));
-
-    let mut client = AggregatorClient::get(name.0.clone());
-    if first_call {
-        client.initialize_aggregator(config.functions.clone()).await;
-        client.register_session().await;
-    }
-    client.on_delta(delta).await;
+    AggregatorClient::get(route.report_to.0)
+        .report(SessionReport {
+            session: update.session.clone(),
+            time: update.time,
+            value: update.value,
+        })
+        .await;
 }

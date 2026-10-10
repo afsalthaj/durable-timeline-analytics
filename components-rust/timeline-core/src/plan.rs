@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
-use common_lib::{AgentName, NodeNumber, SessionId, TimeLineOp};
+use common_lib::{AgentName, MetricName, NodeNumber, SessionId, TimeLineOp};
 
 use crate::types::{ChildSlot, DerivedOperation, LeafOperation, ParentRef};
 
@@ -25,13 +25,17 @@ impl AgentPlan {
     }
 }
 
-/// Agents for a timeline in pre-order (root first), named
-/// `{session}-{operation}-{n}`, e.g. `sess-42-has-existed-4`.
-pub fn plan_agents(session: &SessionId, timeline: &TimeLineOp) -> Vec<AgentPlan> {
+/// Agents for `metric` on `session` in pre-order (root first), named
+/// `{session}-{metric}-{operation}-{n}`, e.g. `sess-42-cirr-has-existed-4`.
+pub fn plan_agents(
+    session: &SessionId,
+    metric: &MetricName,
+    timeline: &TimeLineOp,
+) -> Vec<AgentPlan> {
     let nodes = timeline.numbered_nodes();
     let names: Vec<AgentName> = nodes
         .iter()
-        .map(|node| AgentName::for_node(session, node))
+        .map(|node| AgentName::for_node(session, metric, node))
         .collect();
     let mut parents: Vec<Option<ParentRef>> = vec![None; nodes.len()];
     for node in &nodes {
@@ -128,25 +132,29 @@ mod tests {
 
     #[test]
     fn cirr_plan_names_and_wiring() {
-        let plans = plan_agents(&SessionId::new("sess-42"), &cirr());
+        let plans = plan_agents(
+            &SessionId::new("sess-42"),
+            &MetricName::new("cirr"),
+            &cirr(),
+        );
         let names: Vec<&str> = plans.iter().map(|p| p.agent_name.0.as_str()).collect();
         assert_eq!(
             names,
             vec![
-                "sess-42-duration-where-1",
-                "sess-42-and-2",
-                "sess-42-and-3",
-                "sess-42-has-existed-4",
-                "sess-42-not-5",
-                "sess-42-has-existed-within-6",
-                "sess-42-equal-to-7",
-                "sess-42-latest-event-to-state-8",
+                "sess-42-cirr-duration-where-1",
+                "sess-42-cirr-and-2",
+                "sess-42-cirr-and-3",
+                "sess-42-cirr-has-existed-4",
+                "sess-42-cirr-not-5",
+                "sess-42-cirr-has-existed-within-6",
+                "sess-42-cirr-equal-to-7",
+                "sess-42-cirr-latest-event-to-state-8",
             ]
         );
 
         let parent = |name: &str, slot| {
             Some(ParentRef {
-                agent_name: AgentName::new(format!("sess-42-{name}")),
+                agent_name: AgentName::new(format!("sess-42-cirr-{name}")),
                 slot,
             })
         };
@@ -173,9 +181,27 @@ mod tests {
     }
 
     #[test]
+    fn metrics_on_one_session_get_distinct_agents() {
+        let timeline = TimeLineOp::TlLatestEventToState(EventColumnName::new("x"));
+        let session = SessionId::new("s");
+        let a = plan_agents(&session, &MetricName::new("a"), &timeline);
+        let b = plan_agents(&session, &MetricName::new("b"), &timeline);
+        let name = |plans: &[AgentPlan]| plans.first().map(|p| p.agent_name.clone());
+        assert_eq!(
+            name(&a),
+            Some(AgentName::new("s-a-latest-event-to-state-1"))
+        );
+        assert_eq!(
+            name(&b),
+            Some(AgentName::new("s-b-latest-event-to-state-1"))
+        );
+    }
+
+    #[test]
     fn single_leaf_is_its_own_root() {
         let plans = plan_agents(
             &SessionId::new("s"),
+            &MetricName::new("m"),
             &TimeLineOp::TlLatestEventToState(EventColumnName::new("x")),
         );
         assert_eq!(plans.len(), 1);

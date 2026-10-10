@@ -2,7 +2,7 @@
 use common_lib::{EventValue, StateDynamicsTimeLine, StatePoint};
 
 use super::to_state_point;
-use crate::types::{ChildSlot, DerivedOperation};
+use crate::types::{ChildSlot, DerivedOperation, SessionValue};
 
 /// A state change from one of a derived node's children.
 #[derive(Clone, Debug, PartialEq)]
@@ -107,6 +107,26 @@ impl DerivedState {
             });
         }
         to_state_point(self.result_state.get_state_at(t1), EventValue::clone)
+    }
+
+    /// This node's latest value as a contribution to an aggregate: rising
+    /// while a duration is accumulating, fixed otherwise. `None` if the node
+    /// has no numeric value yet.
+    pub fn session_value(&self) -> Option<SessionValue> {
+        match self.duration_state {
+            Some(DurationState::Climbing { base, since }) => Some(SessionValue::Rising {
+                base: base as f64,
+                since,
+            }),
+            Some(DurationState::Flat { value }) => Some(SessionValue::Fixed {
+                value: value as f64,
+            }),
+            None => self
+                .result_state
+                .last()
+                .and_then(|point| point.value.as_f64())
+                .map(|value| SessionValue::Fixed { value }),
+        }
     }
 
     fn combine(
@@ -247,6 +267,35 @@ mod tests {
             EventValue::StringValue("b".into()),
         ));
         assert_eq!(int_at(&node, 22), Some(EventValue::IntValue(2)));
+    }
+
+    #[test]
+    fn duration_session_value_rises_while_true() {
+        let mut node = DerivedState::new(DerivedOperation::DurationWhere);
+        node.apply(left(100, true));
+        assert_eq!(
+            node.session_value(),
+            Some(SessionValue::Rising {
+                base: 0.0,
+                since: 100
+            })
+        );
+        node.apply(left(130, false));
+        assert_eq!(
+            node.session_value(),
+            Some(SessionValue::Fixed { value: 30.0 })
+        );
+    }
+
+    #[test]
+    fn boolean_session_value_is_zero_or_one() {
+        let mut node = DerivedState::new(DerivedOperation::Not);
+        assert_eq!(node.session_value(), None);
+        node.apply(left(1, false));
+        assert_eq!(
+            node.session_value(),
+            Some(SessionValue::Fixed { value: 1.0 })
+        );
     }
 
     #[test]

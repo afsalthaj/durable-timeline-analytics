@@ -1,26 +1,13 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 use std::collections::BTreeMap;
 use std::fmt::Debug;
+use std::ops::Bound::{Excluded, Unbounded};
 
 use crate::event_timeline::EventTimeLine;
 use crate::internals::aligned_state_dynamic_timeline::AlignedStateDynamicsTimeLine;
 use crate::internals::boundaries::Boundaries;
 use crate::internals::zip_result::ZipResult;
 use crate::state_dynamic_timeline_point::StateDynamicsTimeLinePoint;
-
-/// The segment that starts before the time being inserted.
-struct PrecedingSegment<T> {
-    t1: u64,
-    t2: Option<u64>,
-    value: T,
-}
-
-/// The segment that starts at or after the time being inserted.
-struct FollowingSegment {
-    t1: u64,
-    t2: Option<u64>,
-    same_value: bool,
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StateDynamicsTimeLine<T> {
@@ -116,156 +103,46 @@ impl<T: Clone + PartialEq> StateDynamicsTimeLine<T> {
         }
     }
 
-    // Aka building tl_latest_event_to_state
+    /// Records that the state becomes `value` at `new_time`, holding until the
+    /// next recorded change. A change already recorded at `new_time` is
+    /// replaced, and adjacent segments with equal values are merged, so
+    /// recording the same change twice is a no-op.
     pub fn add_state_dynamic_info(&mut self, new_time: u64, value: T) {
+        let next_change = self
+            .points
+            .range((Excluded(new_time), Unbounded))
+            .next()
+            .map(|(t1, _)| *t1);
+        let merges_with_next = next_change
+            .and_then(|t1| self.points.get(&t1))
+            .is_some_and(|next| next.value == value);
+        let end = if merges_with_next {
+            next_change
+                .and_then(|t1| self.points.remove(&t1))
+                .and_then(|next| next.t2)
+        } else {
+            next_change
+        };
+
+        self.points.remove(&new_time);
         let preceding = self
             .points
-            .range(..new_time)
+            .range_mut(..new_time)
             .next_back()
-            .map(|(_, p)| PrecedingSegment {
-                t1: p.t1,
-                t2: p.t2,
-                value: p.value.clone(),
-            });
-        let following = self
-            .points
-            .range(new_time..)
-            .next()
-            .map(|(_, p)| FollowingSegment {
-                t1: p.t1,
-                t2: p.t2,
-                same_value: p.value == value,
-            });
-
-        match (preceding, following) {
-            // The new time is in between timelines.
-            (
-                Some(PrecedingSegment {
-                    t1: left_t1,
-                    t2: left_t2,
-                    value: left_val,
-                }),
-                Some(_),
-            ) => {
-                if left_val != value {
-                    self.points.insert(
-                        left_t1,
-                        StateDynamicsTimeLinePoint {
-                            t1: left_t1,
-                            t2: Some(new_time),
-                            value: left_val,
-                        },
-                    );
-                    self.points.insert(
-                        new_time,
-                        StateDynamicsTimeLinePoint {
-                            t1: new_time,
-                            t2: left_t2,
-                            value,
-                        },
-                    );
-                }
+            .map(|(_, point)| point);
+        match preceding {
+            Some(preceding) if preceding.value == value => preceding.t2 = end,
+            Some(preceding) => {
+                preceding.t2 = Some(new_time);
+                self.insert_segment(new_time, end, value);
             }
-
-            // the new event falls on the right side of the existing time line
-            (
-                Some(PrecedingSegment {
-                    t1: left_t1,
-                    t2: left_t2,
-                    value: left_val,
-                }),
-                None,
-            ) => {
-                if left_val == value && left_t2.is_some_and(|t2| t2 < new_time) {
-                    self.points.insert(
-                        left_t1,
-                        StateDynamicsTimeLinePoint {
-                            t1: left_t1,
-                            t2: None,
-                            value: left_val,
-                        },
-                    );
-                } else if left_val != value {
-                    if left_t2.is_none_or(|t2| t2 > new_time) {
-                        self.points.insert(
-                            left_t1,
-                            StateDynamicsTimeLinePoint {
-                                t1: left_t1,
-                                t2: Some(new_time),
-                                value: left_val,
-                            },
-                        );
-                        self.points.insert(
-                            new_time,
-                            StateDynamicsTimeLinePoint {
-                                t1: new_time,
-                                t2: left_t2,
-                                value,
-                            },
-                        );
-                    } else if left_t2.is_some_and(|t2| t2 < new_time) {
-                        self.points.insert(
-                            left_t1,
-                            StateDynamicsTimeLinePoint {
-                                t1: left_t1,
-                                t2: Some(new_time),
-                                value: left_val,
-                            },
-                        );
-                        self.points.insert(
-                            new_time,
-                            StateDynamicsTimeLinePoint {
-                                t1: new_time,
-                                t2: None,
-                                value,
-                            },
-                        );
-                    }
-                }
-            }
-
-            // the new event falls on the left side of the existing timeline
-            (
-                None,
-                Some(FollowingSegment {
-                    t1: right_t1,
-                    t2: right_t2,
-                    same_value,
-                }),
-            ) => {
-                if same_value {
-                    self.points.remove(&right_t1);
-                    self.points.insert(
-                        new_time,
-                        StateDynamicsTimeLinePoint {
-                            t1: new_time,
-                            t2: right_t2,
-                            value,
-                        },
-                    );
-                } else {
-                    self.points.insert(
-                        new_time,
-                        StateDynamicsTimeLinePoint {
-                            t1: new_time,
-                            t2: Some(right_t1),
-                            value,
-                        },
-                    );
-                }
-            }
-
-            (None, None) => {
-                self.points.insert(
-                    new_time,
-                    StateDynamicsTimeLinePoint {
-                        t1: new_time,
-                        t2: None,
-                        value,
-                    },
-                );
-            }
+            None => self.insert_segment(new_time, end, value),
         }
+    }
+
+    fn insert_segment(&mut self, t1: u64, t2: Option<u64>, value: T) {
+        self.points
+            .insert(t1, StateDynamicsTimeLinePoint { t1, t2, value });
     }
 }
 
@@ -739,6 +616,24 @@ mod tests {
         timeline.points.values().cloned().collect()
     }
 
+    #[derive(Clone, Copy)]
+    struct Change {
+        time: u64,
+        value: &'static str,
+    }
+
+    fn change(time: u64, value: &'static str) -> Change {
+        Change { time, value }
+    }
+
+    fn timeline_of(changes: &[Change]) -> StateDynamicsTimeLine<&'static str> {
+        let mut timeline = StateDynamicsTimeLine::default();
+        for c in changes {
+            timeline.add_state_dynamic_info(c.time, c.value);
+        }
+        timeline
+    }
+
     #[test]
     fn repeated_value_does_not_split_open_segment() {
         let mut timeline = StateDynamicsTimeLine::default();
@@ -779,6 +674,66 @@ mod tests {
                 point(4, Some(10), "buffer"),
                 point(10, None, "pause"),
             ]
+        );
+    }
+
+    #[test]
+    fn redelivered_change_is_a_no_op() {
+        let mut timeline = timeline_of(&[
+            change(1, "init"),
+            change(4, "buffer"),
+            change(5, "play"),
+            change(14, "play"),
+            change(9, "pause"),
+        ]);
+        let before = points(&timeline);
+        timeline.add_state_dynamic_info(4, "buffer");
+        timeline.add_state_dynamic_info(9, "pause");
+        timeline.add_state_dynamic_info(1, "init");
+        assert_eq!(points(&timeline), before);
+    }
+
+    #[test]
+    fn redelivered_stream_keeps_segments_well_formed() {
+        let stream = [
+            change(1, "init"),
+            change(4, "buffer"),
+            change(5, "play"),
+            change(13, "buffer"),
+            change(14, "play"),
+        ];
+        let timeline = timeline_of(&[stream.as_slice(), stream.as_slice()].concat());
+        assert_eq!(
+            points(&timeline),
+            vec![
+                point(1, Some(4), "init"),
+                point(4, Some(5), "buffer"),
+                point(5, Some(13), "play"),
+                point(13, Some(14), "buffer"),
+                point(14, None, "play"),
+            ]
+        );
+    }
+
+    #[test]
+    fn replacing_a_change_merges_equal_neighbours() {
+        let mut timeline = StateDynamicsTimeLine::default();
+        timeline.add_state_dynamic_info(1, "play");
+        timeline.add_state_dynamic_info(5, "buffer");
+        timeline.add_state_dynamic_info(9, "play");
+        timeline.add_state_dynamic_info(5, "play");
+        assert_eq!(points(&timeline), vec![point(1, None, "play")]);
+    }
+
+    #[test]
+    fn late_change_equal_to_following_extends_it_backwards() {
+        let mut timeline = StateDynamicsTimeLine::default();
+        timeline.add_state_dynamic_info(1, "init");
+        timeline.add_state_dynamic_info(10, "play");
+        timeline.add_state_dynamic_info(4, "play");
+        assert_eq!(
+            points(&timeline),
+            vec![point(1, Some(4), "init"), point(4, None, "play")]
         );
     }
 

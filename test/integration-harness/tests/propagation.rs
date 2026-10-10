@@ -4,12 +4,12 @@
 //! Run: `cargo make propagation`
 
 use common_lib::{AgentName, Event, EventValue, SessionId, TimeLineOp};
-use integration_harness::fixtures::{cirr, column, event, has_existed};
+use integration_harness::fixtures::{METRIC, cirr, column, event, has_existed, metric};
 use integration_harness::harness::{self, TestResult};
 use timeline_client::TimelineClient;
 
 fn node(session: &SessionId, suffix: &str) -> AgentName {
-    AgentName::new(format!("{session}-{suffix}"))
+    AgentName::new(format!("{session}-{METRIC}-{suffix}"))
 }
 
 fn send(client: &TimelineClient, leaves: &[AgentName], event: &Event) -> TestResult {
@@ -40,7 +40,7 @@ fn boolean_logic() -> TestResult {
         !has_existed("status", "error"),
     );
 
-    let init = client.initialize_timeline(&session, &timeline, None)?;
+    let init = client.initialize_timeline(&session, &metric(METRIC), &timeline, None)?;
     let root = node(&session, "and-1");
     assert_eq!(init.root_agent, root);
     assert_eq!(
@@ -91,7 +91,7 @@ fn cirr_duration() -> TestResult {
     let client = harness::setup()?;
     let session = harness::unique_session("prop-cirr");
 
-    let init = client.initialize_timeline(&session, &cirr(), None)?;
+    let init = client.initialize_timeline(&session, &metric(METRIC), &cirr(), None)?;
     let root = node(&session, "duration-where-1");
     assert_eq!(init.root_agent, root);
     assert_eq!(

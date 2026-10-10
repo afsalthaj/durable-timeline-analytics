@@ -4,21 +4,17 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use common_lib::{AggregationConfig, EventColumnName, NumberedNode, TimeLineOp};
+use common_lib::{AggregationConfig, EventColumnName, MetricName, NumberedNode, TimeLineOp};
 use timeline_dsl::{ParsedTimeline, parse};
 
 // ── Newtypes ──
-
-/// A human-readable name for a registered metric (e.g., "cirr", "idle-time").
-#[derive(Clone, Debug, Serialize, Deserialize, Hash, Eq, PartialEq)]
-pub struct MetricName(pub String);
 
 /// The raw DSL text as written by the developer.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DslText(pub String);
 
 /// The agent name suffix, e.g. "has-existed-4".
-/// The full agent name is `{session-id}-{suffix}`.
+/// The full agent name is `{session-id}-{metric}-{suffix}`.
 #[derive(Clone, Debug, Serialize, Hash, Eq, PartialEq)]
 pub struct AgentSuffix(pub String);
 
@@ -250,7 +246,7 @@ mod tests {
 
     fn request(name: &str, dsl: &str) -> RegisterMetricRequest {
         RegisterMetricRequest {
-            name: MetricName(name.to_string()),
+            name: MetricName::new(name),
             dsl: DslText(dsl.to_string()),
         }
     }
@@ -296,7 +292,7 @@ mod tests {
         let registry = MetricRegistry::new();
         registry.register(&request("a", "latest_event_to_state(x) == 1"))?;
         let again = registry.register(&request("b", "latest_event_to_state(x)   ==\n 1"))?;
-        assert_eq!(again.metric.name, MetricName("a".to_string()));
+        assert_eq!(again.metric.name, MetricName::new("a"));
         assert_eq!(registry.list()?.len(), 1);
         Ok(())
     }
