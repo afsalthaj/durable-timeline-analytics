@@ -2,7 +2,7 @@
 
 A metric language for **what is true over time**, not just what happened in a window.
 
-Streaming engines (Flink, Spark, [Railgun](https://www.feedzai.com/resource/railgun-by-feedzai-the-future-of-real-time-fraud-detection-is-here/)) are strong at aggregates over sliding windows: counts, sums, profiles. They are weaker at the questions fraud, QoE, and risk teams actually write down:
+Streaming engines (Flink, Spark, Spark Streaming, PySpark, and company-specific open source projects) are strong at aggregates over sliding windows: counts, sums, profiles. They are weaker at the questions fraud, QoE, and risk teams actually write down:
 
 > Has play ever started, was there *no* seek in the last 5 seconds, and is the player *currently* buffering — and **for how long** has that been true?
 
@@ -75,7 +75,7 @@ Point-in-time lookup on any node is local. The push already happened.
 
 A session with no events costs **storage, not RAM**. Golem wakes only the path that an event touches (~5 workers for CIRR, milliseconds each) and suspends them again. Ten million concurrent sessions is tens of millions of agents on disk and tens of thousands in memory.
 
-That is the same “always on, bursty, must be correct” regime Railgun targets — except the unit of work is a **composable temporal expression**, not a sliding-window profile.
+That is the same “always on, bursty, must be correct” regime those engines target — except the unit of work is a **composable temporal expression**, not a sliding-window profile.
 
 ## Try it
 
