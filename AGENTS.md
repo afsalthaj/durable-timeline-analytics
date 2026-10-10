@@ -39,7 +39,7 @@ Durable timeline analytics on [Golem](https://learn.golem.cloud) — a durable a
 - Never add dependencies that don't compile to `wasm32-wasip2` inside `components-rust/` (or to `common-lib`). The services and test harness target native.
 - Agent names are deterministic from session ID + traversal order. Integration tests use `harness::unique_session` so reruns against the same server don't hit stale state.
 - `golem build` regenerates `.agents/skills` (git-ignored) and the Golem-managed section of this file.
-- `ParentRef` is currently singular (one parent per agent). See the "Compute Reuse" section in README.md for the planned fan-out design.
+- `ParentRef` is currently singular (one parent per agent). See the "Compute Reuse" section in docs/design.md for the planned fan-out design.
 
 <!-- golem-managed:guide:rust:start -->
 <!-- Golem manages this section. Do not edit manually. -->
