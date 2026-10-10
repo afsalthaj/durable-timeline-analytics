@@ -314,41 +314,19 @@
       padding: 8px 12px; border-radius: 6px; font-size: 11px; font-weight: 400;
       white-space: nowrap; z-index: 10; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
     }
+    .tl-chart {
+      display: flex; align-items: stretch; gap: 10px;
+      width: 100%; height: 88px; margin-top: 12px;
+    }
+    .tl-chart.levels { height: 120px; }
+    .tl-ylabels {
+      width: 58px; display: flex; flex-direction: column; justify-content: space-between;
+      font-size: 11px; color: var(--text-muted); text-align: right;
+      padding: 6px 0; line-height: 1; font-family: var(--mono);
+    }
     .tl-line {
-      display: block; width: 100%; height: 72px; margin-top: 12px;
-    }
-    .tl-track {
-      position: relative; width: 100%; height: 40px; margin-top: 12px;
-      background: #eef1f4; border-radius: 6px; overflow: hidden;
-    }
-    .tl-track.state { height: 56px; }
-    .tl-band {
-      position: absolute; top: 8px; bottom: 8px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 12px; font-weight: 650; color: #fff;
-      border-radius: 4px; overflow: hidden; padding: 0 8px;
-      white-space: nowrap;
-    }
-    .tl-band.narrow { color: transparent; }
-    .tl-band.play { background: var(--state-play); }
-    .tl-band.buffer { background: var(--state-buffer); }
-    .tl-band.pause { background: var(--state-pause); }
-    .tl-band.init { background: var(--state-init); }
-    .tl-band.seek { background: var(--state-seek); }
-    .tl-band.true { background: #0f766e; }
-    .tl-band.false { background: #cbd5e1; color: #475569; }
-    .tl-band.other { background: #0284c7; }
-    .tl-cursor {
-      position: absolute; top: 0; bottom: 0; width: 2px;
-      background: #111827; z-index: 2; pointer-events: none;
-    }
-    .tl-legend {
-      display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px;
-      font-size: 11px; color: var(--text-muted);
-    }
-    .tl-legend i {
-      display: inline-block; width: 10px; height: 10px; border-radius: 2px;
-      margin-right: 5px; vertical-align: -1px;
+      display: block; flex: 1; height: 100%; margin: 0;
+      background: #f8fafc; border: 1px solid var(--border); border-radius: 6px;
     }
     .snapshot-caption {
       color: var(--text-muted); font-size: 13px; line-height: 1.55;
@@ -627,16 +605,27 @@
       return formatEventValue(last.value);
     }
 
-    function stateBandClass(value) {
-      const v = String(value).toLowerCase();
-      if (v === 'play' || v === 'playing') return 'play';
-      if (v === 'buffer' || v === 'buffering') return 'buffer';
-      if (v === 'pause' || v === 'paused') return 'pause';
-      if (v === 'init' || v === 'idle') return 'init';
-      if (v === 'seek') return 'seek';
-      if (v === 'true') return 'true';
-      if (v === 'false') return 'false';
-      return 'other';
+    function discreteLevels(labels) {
+      const seen = [];
+      for (let i = 0; i < labels.length; i++) {
+        if (seen.indexOf(labels[i]) < 0) seen.push(labels[i]);
+      }
+      if (seen.every((v) => v === 'true' || v === 'false')) {
+        return ['false', 'true'];
+      }
+      const order = ['init', 'idle', 'play', 'playing', 'buffer', 'buffering', 'pause', 'paused', 'seek'];
+      const levels = [];
+      for (let i = 0; i < order.length; i++) {
+        for (let j = 0; j < seen.length; j++) {
+          if (seen[j].toLowerCase() === order[i] && levels.indexOf(seen[j]) < 0) {
+            levels.push(seen[j]);
+          }
+        }
+      }
+      for (let j = 0; j < seen.length; j++) {
+        if (levels.indexOf(seen[j]) < 0) levels.push(seen[j]);
+      }
+      return levels;
     }
 
     function renderStepLine(result, isRoot, tMin, tMax, playhead) {
@@ -645,76 +634,68 @@
       const span = tMax - tMin || 1;
       const labels = pts.map((pt) => formatEventValue(pt.value));
       const numeric = labels.every((v) => /^-?\d+(\.\d+)?$/.test(v));
-      function leftWidth(pt) {
-        const t2 = pt.t2 != null ? pt.t2 : tMax;
-        const left = ((Math.max(pt.t1, tMin) - tMin) / span) * 100;
-        const right = ((Math.min(t2, tMax) - tMin) / span) * 100;
-        return { left: Math.max(left, 0), width: Math.max(right - left, 0.4) };
-      }
-      function cursor() {
-        if (playhead == null || playhead < tMin || playhead > tMax) return '';
-        const left = ((playhead - tMin) / span) * 100;
-        return '<div class="tl-cursor" style="left:' + left + '%"></div>';
-      }
-
-      if (!numeric) {
-        const states = {};
-        let html = '<div class="tl-track state">';
-        for (let i = 0; i < pts.length; i++) {
-          const value = labels[i];
-          const box = leftWidth(pts[i]);
-          const cls = stateBandClass(value);
-          states[cls] = value;
-          const narrow = box.width < 8 ? ' narrow' : '';
-          html += '<div class="tl-band ' + cls + narrow + '" style="left:' + box.left +
-            '%;width:' + box.width + '%" title="' + escHtml(value) + '">' +
-            escHtml(value) + '</div>';
-        }
-        html += cursor() + '</div>';
-        const legendKeys = Object.keys(states);
-        if (legendKeys.length > 1) {
-          html += '<div class="tl-legend">';
-          for (let i = 0; i < legendKeys.length; i++) {
-            html += '<span><i class="tl-band ' + legendKeys[i] + '" style="position:static;width:10px;height:10px;padding:0;border-radius:2px"></i>' +
-              escHtml(states[legendKeys[i]]) + '</span>';
-          }
-          html += '</div>';
-        }
-        return html;
-      }
-
-      const w = 1000;
-      const h = 72;
-      const pad = 8;
-      const nums = labels.map(Number);
-      const lo = Math.min.apply(null, nums.concat([0]));
-      const hi = Math.max.apply(null, nums.concat([1]));
-      const range = hi - lo || 1;
+      const levels = numeric ? null : discreteLevels(labels);
+      const w = 1100;
+      const h = numeric ? 80 : Math.max(96, 24 + (levels.length * 22));
+      const pad = 10;
       const xAt = (t) => pad + ((Math.min(Math.max(t, tMin), tMax) - tMin) / span) * (w - pad * 2);
-      const yAt = (v) => h - pad - ((Number(v) - lo) / range) * (h - pad * 2);
+      let yAt;
+      let axisLabels = [];
+      if (numeric) {
+        const nums = labels.map(Number);
+        const lo = Math.min.apply(null, nums.concat([0]));
+        const hi = Math.max.apply(null, nums.concat([1]));
+        const range = hi - lo || 1;
+        yAt = (v) => h - pad - ((Number(v) - lo) / range) * (h - pad * 2);
+        axisLabels = [String(hi), String(lo)];
+      } else {
+        yAt = (v) => {
+          const i = levels.indexOf(v);
+          if (levels.length < 2) return h / 2;
+          return h - pad - (Math.max(i, 0) / (levels.length - 1)) * (h - pad * 2);
+        };
+        axisLabels = levels.slice().reverse();
+      }
+      let grid = '';
+      if (levels) {
+        for (let i = 0; i < levels.length; i++) {
+          const y = yAt(levels[i]).toFixed(1);
+          grid += '<line x1="' + pad + '" x2="' + (w - pad) + '" y1="' + y + '" y2="' + y +
+            '" stroke="#e5e7eb" stroke-dasharray="4 4" />';
+        }
+      }
       let d = '';
-      let area = 'M' + xAt(pts[0].t1).toFixed(1) + ' ' + (h - pad);
+      let area = numeric ? 'M' + xAt(pts[0].t1).toFixed(1) + ' ' + (h - pad) : '';
       for (let i = 0; i < pts.length; i++) {
         const pt = pts[i];
         const y = yAt(labels[i]).toFixed(1);
         const x1 = xAt(pt.t1).toFixed(1);
         const x2 = xAt(pt.t2 != null ? pt.t2 : tMax).toFixed(1);
         d += (i === 0 ? 'M' : 'L') + x1 + ' ' + y + 'H' + x2;
-        area += 'L' + x1 + ' ' + y + 'H' + x2;
+        if (numeric) area += 'L' + x1 + ' ' + y + 'H' + x2;
       }
-      area += 'L' + xAt(pts[pts.length - 1].t2 != null ? pts[pts.length - 1].t2 : tMax).toFixed(1) +
-        ' ' + (h - pad) + 'Z';
       const stroke = isRoot ? '#be123c' : '#0369a1';
-      const fill = isRoot ? 'rgba(190,18,60,0.08)' : 'rgba(3,105,161,0.08)';
       let svg = '<svg class="tl-line" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" role="img">';
-      svg += '<path d="' + area + '" fill="' + fill + '" />';
-      svg += '<path d="' + d + '" fill="none" stroke="' + stroke + '" stroke-width="2.5" stroke-linejoin="round" />';
+      svg += grid;
+      if (numeric) {
+        area += 'L' + xAt(pts[pts.length - 1].t2 != null ? pts[pts.length - 1].t2 : tMax).toFixed(1) +
+          ' ' + (h - pad) + 'Z';
+        svg += '<path d="' + area + '" fill="rgba(190,18,60,0.08)" />';
+      }
+      svg += '<path d="' + d + '" fill="none" stroke="' + stroke + '" stroke-width="2.5" stroke-linejoin="miter" />';
       if (playhead != null && playhead >= tMin && playhead <= tMax) {
         const px = xAt(playhead).toFixed(1);
-        svg += '<line x1="' + px + '" x2="' + px + '" y1="2" y2="' + (h - 2) + '" stroke="#111827" stroke-width="1.5" />';
+        svg += '<line x1="' + px + '" x2="' + px + '" y1="' + pad + '" y2="' + (h - pad) + '" stroke="#111827" stroke-width="1.5" />';
       }
       svg += '</svg>';
-      return svg;
+      const chartClass = 'tl-chart' + (numeric ? '' : ' levels');
+      let html = '<div class="' + chartClass + '"' + (numeric ? '' : ' style="height:' + Math.max(120, h) + 'px"') + '>';
+      html += '<div class="tl-ylabels">';
+      for (let i = 0; i < axisLabels.length; i++) {
+        html += '<span>' + escHtml(axisLabels[i]) + '</span>';
+      }
+      html += '</div>' + svg + '</div>';
+      return html;
     }
 
     // ========== Deploy Metric ==========
