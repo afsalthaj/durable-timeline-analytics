@@ -14,7 +14,7 @@ Those are **states of affairs**, not hop windows. This project compiles that sen
 
 Paper: [TimeLine Analytics (CIDR 2023)](https://www.cidrdb.org/cidr2023/papers/p22-milner.pdf). [Slides](https://github.com/afsalthaj/golem-timeline-presentation/blob/main/presentation_last.pdf). Runtime: [Golem](https://learn.golem.cloud) 1.6.
 
-![Dashboard](images/img.png)
+![Dashboard](images/dashboard.png)
 
 ## Get your hands dirty
 
@@ -77,7 +77,7 @@ duration_in_cur_state(latest_event_to_state(status) == "idle")
 
 Deploy the text. The system materializes one agent per node, per session, plus one aggregator per group (e.g. CDN). Same event stream, many metrics; identical DSL is shared, not recomputed.
 
-![Deploy a metric](images/img_1.png)
+![Deploy a metric](images/deploy.png)
 
 ## How a query becomes a graph
 
@@ -92,11 +92,11 @@ duration-where          how long the condition has been true
             └─ latest-event-to-state
 ```
 
-![Computation graph](images/img_2.png)
+![Computation graph](images/graph.png)
 
 Point-in-time lookup on any node is local. The push already happened.
 
-![Computation streaming](images/stream.png)
+![Computation streaming](images/progress.png)
 
 ![Player state timelines](images/live.png)
 
