@@ -13,19 +13,19 @@ Watch the talk from Afsal at [LambdaConf 2024 (Estes Park, Colorado)](https://ww
 
 ## Management UI
 
-![Dashboard overview](../images/img.png)
+![Dashboard overview](../images/dashboard.png)
 
 ### Deploy a Metric
 
-![Deploy a metric](../images/img_1.png)
+![Deploy a metric](../images/deploy.png)
 
 ### Computation Graph
 
-![Computation graph](../images/img_2.png)
+![Computation graph](../images/graph.png)
 
 ### Computation Streaming
 
-![Computation streaming](../images/stream.png)
+![Computation streaming](../images/progress.png)
 
 ![Player state timelines](../images/live.png)
 
