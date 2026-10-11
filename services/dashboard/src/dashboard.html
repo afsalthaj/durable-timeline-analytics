@@ -315,27 +315,29 @@
       white-space: nowrap; z-index: 10; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
     }
     .tl-chart {
-      display: flex; align-items: stretch; gap: 10px;
-      width: 100%; height: 88px; margin-top: 12px;
+      display: flex; align-items: stretch; gap: 12px;
+      width: 100%; height: 72px; margin-top: 14px;
     }
-    .tl-chart.levels { height: 120px; }
+    .tl-chart.levels { height: 104px; }
     .tl-ylabels {
-      width: 58px; display: flex; flex-direction: column; justify-content: space-between;
-      font-size: 11px; color: var(--text-muted); text-align: right;
-      padding: 6px 0; line-height: 1; font-family: var(--mono);
+      width: 52px; display: flex; flex-direction: column; justify-content: space-between;
+      font-size: 10px; color: #86868b; text-align: right;
+      padding: 4px 0; line-height: 1; letter-spacing: -0.01em;
+      font-weight: 400;
     }
     .tl-line {
       display: block; flex: 1; height: 100%; margin: 0;
-      background: #f8fafc; border: 1px solid var(--border); border-radius: 6px;
+      background: transparent; border: 0; border-radius: 0;
+      overflow: visible;
     }
     .snapshot-caption {
       color: var(--text-muted); font-size: 13px; line-height: 1.55;
       margin: 0 0 18px; max-width: 720px;
     }
     .tl-axis {
-      display: flex; justify-content: space-between; font-size: 9px;
-      color: var(--text-muted); margin-top: 2px; padding: 0 2px;
-      font-family: var(--mono); font-variant-numeric: tabular-nums;
+      display: flex; justify-content: space-between; font-size: 10px;
+      color: #86868b; margin-top: 2px; padding: 0 64px 0 64px;
+      font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
     }
     @keyframes pulse-live {
       0%, 100% { opacity: 1; }
@@ -383,10 +385,10 @@
       </p>
       <p class="lead" style="margin-bottom:8px"><strong style="color:var(--cyan)">Example:</strong> Connection Induced Rebuffering Ratio (CIRR)</p>
       <div class="dsl-block">duration_where(
-  has_existed(playerStateChange == "play")
-  && !has_existed_within(playerStateChange == "seek", 5)
-  && latest_event_to_state(playerStateChange) == "buffer"
-) | aggregate(group_by(cdn), count, sum, avg)</div>
+  has_existed(playerStateChange == "play").describe("has the user ever played")
+  && !has_existed_within(playerStateChange == "seek", 5).describe("no recent seek")
+  && (latest_event_to_state(playerStateChange) == "buffer").describe("player is buffering")
+).describe("how long CIRR has been true") | aggregate(group_by(cdn), count, sum, avg)</div>
 
       <div class="step">
         <div class="step-num">1</div>
@@ -440,10 +442,10 @@
         <div class="dsl-editor-wrap">
           <pre class="dsl-highlight" id="dsl-highlight" aria-hidden="true"></pre>
           <textarea id="dsl-input" class="dsl-editor">duration_where(
-  has_existed(playerStateChange == "play")
-  && !has_existed_within(playerStateChange == "seek", 5)
-  && latest_event_to_state(playerStateChange) == "buffer"
-) | aggregate(group_by(cdn), count, sum, avg)</textarea>
+  has_existed(playerStateChange == "play").describe("has the user ever played")
+  && !has_existed_within(playerStateChange == "seek", 5).describe("no recent seek")
+  && (latest_event_to_state(playerStateChange) == "buffer").describe("player is buffering")
+).describe("how long CIRR has been true") | aggregate(group_by(cdn), count, sum, avg)</textarea>
         </div>
         <div style="text-align:right"><button class="btn" id="deploy-btn">Deploy</button></div>
       </div>
@@ -543,7 +545,7 @@
 
     function highlightDsl(text) {
       return escHtml(text)
-        .replace(/\b(duration_where|has_existed|has_existed_within|latest_event_to_state|aggregate|group_by)\b/g,
+        .replace(/\b(duration_where|has_existed|has_existed_within|latest_event_to_state|aggregate|group_by|describe)\b/g,
           '<span class="dsl-kw">$1</span>')
         .replace(/\b(count|sum|avg|min|max)\b/g, '<span class="dsl-fn">$1</span>')
         .replace(/&quot;([^&]*)&quot;/g, '<span class="dsl-str">"$1"</span>')
@@ -628,7 +630,7 @@
       return levels;
     }
 
-    function renderStepLine(result, isRoot, tMin, tMax, playhead) {
+    function renderStepLine(result, tMin, tMax) {
       const pts = getTimelinePoints(result);
       if (pts.length === 0) return '';
       const span = tMax - tMin || 1;
@@ -636,8 +638,8 @@
       const numeric = labels.every((v) => /^-?\d+(\.\d+)?$/.test(v));
       const levels = numeric ? null : discreteLevels(labels);
       const w = 1100;
-      const h = numeric ? 80 : Math.max(96, 24 + (levels.length * 22));
-      const pad = 10;
+      const h = numeric ? 64 : Math.max(72, 16 + (levels.length * 18));
+      const pad = 8;
       const xAt = (t) => pad + ((Math.min(Math.max(t, tMin), tMax) - tMin) / span) * (w - pad * 2);
       let yAt;
       let axisLabels = [];
@@ -656,40 +658,24 @@
         };
         axisLabels = levels.slice().reverse();
       }
-      let grid = '';
-      if (levels) {
-        for (let i = 0; i < levels.length; i++) {
-          const y = yAt(levels[i]).toFixed(1);
-          grid += '<line x1="' + pad + '" x2="' + (w - pad) + '" y1="' + y + '" y2="' + y +
-            '" stroke="#e5e7eb" stroke-dasharray="4 4" />';
-        }
-      }
       let d = '';
-      let area = numeric ? 'M' + xAt(pts[0].t1).toFixed(1) + ' ' + (h - pad) : '';
       for (let i = 0; i < pts.length; i++) {
         const pt = pts[i];
         const y = yAt(labels[i]).toFixed(1);
         const x1 = xAt(pt.t1).toFixed(1);
         const x2 = xAt(pt.t2 != null ? pt.t2 : tMax).toFixed(1);
         d += (i === 0 ? 'M' : 'L') + x1 + ' ' + y + 'H' + x2;
-        if (numeric) area += 'L' + x1 + ' ' + y + 'H' + x2;
       }
-      const stroke = isRoot ? '#be123c' : '#0369a1';
+      const baseline = h - pad;
       let svg = '<svg class="tl-line" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" role="img">';
-      svg += grid;
-      if (numeric) {
-        area += 'L' + xAt(pts[pts.length - 1].t2 != null ? pts[pts.length - 1].t2 : tMax).toFixed(1) +
-          ' ' + (h - pad) + 'Z';
-        svg += '<path d="' + area + '" fill="rgba(190,18,60,0.08)" />';
-      }
-      svg += '<path d="' + d + '" fill="none" stroke="' + stroke + '" stroke-width="2.5" stroke-linejoin="miter" />';
-      if (playhead != null && playhead >= tMin && playhead <= tMax) {
-        const px = xAt(playhead).toFixed(1);
-        svg += '<line x1="' + px + '" x2="' + px + '" y1="' + pad + '" y2="' + (h - pad) + '" stroke="#111827" stroke-width="1.5" />';
-      }
+      svg += '<line x1="' + pad + '" x2="' + (w - pad) + '" y1="' + baseline + '" y2="' + baseline +
+        '" stroke="#e5e5ea" stroke-width="1" vector-effect="non-scaling-stroke" />';
+      svg += '<path d="' + d + '" fill="none" stroke="#1d1d1f" stroke-width="1.25" ' +
+        'stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" />';
       svg += '</svg>';
       const chartClass = 'tl-chart' + (numeric ? '' : ' levels');
-      let html = '<div class="' + chartClass + '"' + (numeric ? '' : ' style="height:' + Math.max(120, h) + 'px"') + '>';
+      const chartH = numeric ? 72 : Math.max(104, 20 + levels.length * 20);
+      let html = '<div class="' + chartClass + '" style="height:' + chartH + 'px">';
       html += '<div class="tl-ylabels">';
       for (let i = 0; i < axisLabels.length; i++) {
         html += '<span>' + escHtml(axisLabels[i]) + '</span>';
@@ -742,6 +728,12 @@
         return value;
       }
       return '"' + value + '"';
+    }
+
+    function captionOf(node) {
+      const caption = node && node.caption;
+      if (typeof caption === 'string') return caption.trim();
+      return '';
     }
 
     // Labels in the DSL the user wrote, built from the child tree.
@@ -841,7 +833,8 @@
           }
         }
         const named = dslFrom(node, children);
-        return { ...node, children, label: named.dsl, hint: named.hint, dsl: named.dsl };
+        const hint = captionOf(node) || named.hint;
+        return { ...node, children, label: named.dsl, hint, dsl: named.dsl };
       }
       return flattenBool(buildNode());
     }
@@ -862,9 +855,9 @@
         }
       }
       const symbol = node.operation === 'and' ? '&&' : '||';
-      const hint = node.operation === 'and'
+      const hint = captionOf(node) || (node.operation === 'and'
         ? 'True when every clause below is true'
-        : 'True when any clause below is true';
+        : 'True when any clause below is true');
       return { ...node, children: flat, label: symbol, hint, dsl: symbol };
     }
 
@@ -1090,7 +1083,7 @@
         }));
       }
       const axis = playing
-        ? { playhead, globalMin: playbackStart, globalMax: playbackEnd }
+        ? { globalMin: playbackStart, globalMax: playbackEnd }
         : null;
       renderInspectTree(session, t1, results, axis, playing);
 
@@ -1165,7 +1158,6 @@
       }
       if (globalMin === Infinity) globalMin = 0;
       if (globalMax === 0) globalMax = 1;
-      const playheadAt = axis ? axis.playhead : null;
       const bySuffix = {};
       for (const r of results) bySuffix[r.suffix] = r;
       const tree = rebuildTree(selectedMetric);
@@ -1189,22 +1181,22 @@
         '</code> at t = <code>' + t1 + '</code></div>';
 
       if (playing) {
-        html += '<p class="snapshot-caption">Live: each line is that clause over time. The white cursor is now.</p>';
-        html += '<div class="tl-axis" style="margin-bottom:8px;font-size:11px">' +
-          '<span>t = ' + globalMin + '</span><span>t = ' + globalMax + '</span></div>';
+        html += '<p class="snapshot-caption">Live: each line is that clause over time.</p>';
+        html += '<div class="tl-axis" style="margin-bottom:4px">' +
+          '<span>' + globalMin + '</span><span>' + globalMax + '</span></div>';
       } else {
         html += '<p class="snapshot-caption">Snapshot: the answer to each clause <em>at this instant</em>. It is not a history. Use Live to watch the timeline.</p>';
       }
 
       if (rooted) {
-        html += renderInspectNode(rooted, globalMin, globalMax, playheadAt, playing);
+        html += renderInspectNode(rooted, globalMin, globalMax, playing);
       }
 
       html += '</div>';
       treeOutput.innerHTML = html;
     }
 
-    function renderInspectNode(r, globalMin, globalMax, playheadAt, playing) {
+    function renderInspectNode(r, globalMin, globalMax, playing) {
       const currentValue = r.status === 'ok' ? summarizeResult(r.result) : (r.status === 'err' ? '—' : '—');
       const valueCls = r.status === 'ok' ? 'ok' : (r.status === 'err' ? 'err' : 'pending');
       const rootTag = r.isRoot ? ' <span style="color:var(--rose);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">metric</span>' : '';
@@ -1219,14 +1211,14 @@
       if (r.status === 'err') {
         html += '<div class="error-msg" style="margin-top:8px">' + escHtml(r.error) + '</div>';
       } else if (r.status === 'ok' && playing) {
-        html += renderStepLine(r.result, r.isRoot, globalMin, globalMax, playheadAt);
+        html += renderStepLine(r.result, globalMin, globalMax);
       }
 
       html += '</div>';
       if (r.children && r.children.length) {
         html += '<div class="inspect-children">';
         for (const child of r.children) {
-          html += renderInspectNode(child, globalMin, globalMax, playheadAt, playing);
+          html += renderInspectNode(child, globalMin, globalMax, playing);
         }
         html += '</div>';
       }

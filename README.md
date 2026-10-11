@@ -96,7 +96,9 @@ duration-where          how long the condition has been true
 
 Point-in-time lookup on any node is local. The push already happened.
 
-![Live aggregation](images/aggregate.png)
+![Computation streaming](images/stream.png)
+
+![Player state timelines](images/live.png)
 
 ## Scale, briefly
 
@@ -115,6 +117,7 @@ That is the same “always on, bursty, must be correct” regime those engines t
 | `&&` `\|\|` `!` | Derived | Boolean combination |
 | `duration_where(expr)` | Derived | Cumulative time `expr` is true |
 | `duration_in_cur_state(expr)` | Derived | Time since `expr` last changed |
+| `.describe("…")` | Any node | Caption on the computation graph; falls back to the default gloss |
 | `\| aggregate(group_by(col), …)` | Root | Count / sum / avg / min / max across sessions |
 
 Agent names: `{session}-{metric}-{operation}-{n}`. Aggregators: `aggregator-{metric}-{column}-{value}`.
