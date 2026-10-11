@@ -131,7 +131,7 @@ if [ "$DASHBOARD_PORT" != 3000 ]; then
 else
     echo "==> Starting dashboard at http://localhost:$DASHBOARD_PORT ..."
 fi
-KAFKA_BROKER=localhost:9092 KAFKA_TOPIC=timeline-events DASHBOARD_PORT="$DASHBOARD_PORT" cargo run -p dashboard &
+KAFKA_BROKER=127.0.0.1:9092 KAFKA_TOPIC=timeline-events DASHBOARD_PORT="$DASHBOARD_PORT" cargo run -p dashboard &
 DASH_PID=$!
 
 for i in $(seq 1 60); do

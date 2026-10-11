@@ -140,7 +140,7 @@ impl TimelineProcessor for TimelineProcessorImpl {
             }));
         }
         Ok(to_state_point(
-            self.result_state.get_state_at(t1),
+            self.result_state.state_holding_at(t1),
             EventValue::clone,
         ))
     }

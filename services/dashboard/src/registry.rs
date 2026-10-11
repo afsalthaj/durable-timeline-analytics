@@ -26,6 +26,10 @@ pub struct AgentSuffix(pub String);
 #[derive(Clone, Debug, Serialize)]
 pub struct NodeDescription(pub String);
 
+/// Optional `.describe("...")` caption written on a node.
+#[derive(Clone, Debug, Serialize)]
+pub struct NodeCaption(pub String);
+
 /// The operation of a derived node, e.g. "and" or "equal-to(buffer)".
 #[derive(Clone, Debug, Serialize)]
 pub struct OperationName(pub String);
@@ -42,6 +46,8 @@ pub struct LeafInfo {
     pub agent_suffix: AgentSuffix,
     pub event_columns: Vec<EventColumnName>,
     pub description: NodeDescription,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caption: Option<NodeCaption>,
 }
 
 /// A derived (non-leaf) agent in the compiled tree.
@@ -50,6 +56,8 @@ pub struct DerivedInfo {
     pub agent_suffix: AgentSuffix,
     pub operation: OperationName,
     pub description: NodeDescription,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caption: Option<NodeCaption>,
 }
 
 /// Maps an event column to the agent suffixes of leaves that need events
@@ -151,17 +159,20 @@ fn compile(req: &RegisterMetricRequest, parsed: ParsedTimeline) -> Registration 
     let mut derived_nodes = Vec::new();
     for node in parsed.op.numbered_nodes() {
         let agent_suffix = AgentSuffix(node.suffix());
+        let caption = parsed.captions.get(&node.number).cloned().map(NodeCaption);
         if node.op.is_leaf() {
             leaves.push(LeafInfo {
                 agent_suffix,
                 event_columns: node.op.leaf_columns().into_iter().cloned().collect(),
                 description: NodeDescription(describe(&node)),
+                caption,
             });
         } else {
             derived_nodes.push(DerivedInfo {
                 agent_suffix,
                 operation: OperationName(operation(node.op)),
                 description: NodeDescription(describe(&node)),
+                caption,
             });
         }
     }
@@ -306,5 +317,24 @@ mod tests {
         assert!(MetricRegistry::new()
             .register(&request("bad", "has_existed("))
             .is_err());
+    }
+
+    #[test]
+    fn describe_caption_is_kept_on_the_node() -> Result<(), String> {
+        let registration = MetricRegistry::new().register(&request(
+            "labeled",
+            r#"has_existed(playerStateChange == "play").describe("has the user ever played")"#,
+        ))?;
+        let leaf = registration
+            .metric
+            .leaves
+            .first()
+            .ok_or("expected a leaf")?;
+        assert_eq!(
+            leaf.caption.as_ref().map(|c| c.0.as_str()),
+            Some("has the user ever played")
+        );
+        assert!(leaf.description.0.contains("playerStateChange"));
+        Ok(())
     }
 }

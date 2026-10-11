@@ -6,26 +6,32 @@
   <title>Timeline Analytics Dashboard</title>
   <style>
     :root {
-      --bg: #0A0A0A;
-      --surface: #111318;
-      --surface2: #1a1e28;
-      --border: #222630;
-      --text: #e8ecf4;
-      --text-muted: #6b7890;
-      --accent: #02A7D1;
-      --accent-dim: #222630;
-      --green: #02A7D1;
-      --orange: #A78BFA;
-      --red: #A78BFA;
-      --cyan: #02A7D1;
-      --purple: #6366F1;
-      --leaf-color: #02A7D1;
-      --derived-color: #A78BFA;
-      --deep-blue: #133A75;
-      --siri: #A78BFA;
-      --siri-mid: #6366F1;
-      --rose: #DA2C5A;
-      --siri-gradient: linear-gradient(135deg, #DA2C5A 0%, #6366F1 50%, #02A7D1 100%);
+      --bg: #f4f5f7;
+      --surface: #ffffff;
+      --surface2: #f3f4f6;
+      --border: #e5e7eb;
+      --text: #111827;
+      --text-muted: #6b7280;
+      --accent: #0369a1;
+      --accent-dim: #e5e7eb;
+      --green: #0f766e;
+      --orange: #d97706;
+      --red: #b91c1c;
+      --cyan: #0369a1;
+      --purple: #6d28d9;
+      --leaf-color: #0369a1;
+      --derived-color: #6d28d9;
+      --deep-blue: #1e3a5f;
+      --siri: #6d28d9;
+      --siri-mid: #4f46e5;
+      --rose: #be123c;
+      --siri-gradient: none;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --state-play: #15803d;
+      --state-buffer: #d97706;
+      --state-pause: #6d28d9;
+      --state-init: #64748b;
+      --state-seek: #b91c1c;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -35,12 +41,10 @@
     header {
       padding: 20px 40px; border-bottom: 1px solid var(--border);
       display: flex; align-items: center; gap: 16px;
-      background: linear-gradient(135deg, #0A0A0A 0%, #1a1040 35%, #1C5D9C 70%, #0d2854 100%);
+      background: var(--surface);
     }
     header h1 {
-      font-size: 24px; font-weight: 700; letter-spacing: -0.3px;
-      background: var(--siri-gradient); -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent; background-clip: text;
+      font-size: 22px; font-weight: 700; letter-spacing: -0.3px; color: var(--text);
     }
     header .status { font-size: 12px; color: var(--text-muted); margin-left: auto; }
     header .status .dot {
@@ -49,7 +53,7 @@
     }
     .tabs {
       display: flex; border-bottom: 1px solid var(--border); padding: 0 40px;
-      background: linear-gradient(90deg, var(--surface) 0%, #111828 100%);
+      background: var(--surface);
     }
     .tab {
       padding: 14px 24px; font-size: 13px; font-weight: 600; color: var(--text-muted);
@@ -58,18 +62,19 @@
       text-transform: uppercase; letter-spacing: 0.5px;
     }
     .tab:hover { color: var(--cyan); }
-    .tab.active { color: #fff; border-bottom-color: var(--rose); background: rgba(218,44,90,0.1); box-shadow: inset 0 -6px 12px -6px rgba(218,44,90,0.3); }
-    .panel { display: none; padding: 40px 48px; }
+    .tab.active { color: var(--text); border-bottom-color: var(--rose); background: #fff1f2; }
+    .panel { display: none; padding: 36px 40px 48px; }
+    #inspect-panel.panel, #live-panel.panel { padding-left: 32px; padding-right: 32px; }
     .panel.active { display: block; }
     .guide { max-width: 900px; }
     .guide h2 { font-size: 20px; margin-bottom: 12px; color: var(--text); }
     .guide .lead { color: var(--text-muted); font-size: 14px; margin-bottom: 28px; line-height: 1.7; }
     .dsl-block {
-      background: var(--surface); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;
-      padding: 20px 24px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      padding: 20px 24px; font-family: var(--mono); font-size: 13px;
       line-height: 1.8; color: var(--text); margin-bottom: 36px; white-space: pre; overflow-x: auto;
       border-left: 3px solid var(--rose);
-      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      box-shadow: 0 1px 2px rgba(15,23,42,0.04);
     }
     .step { display: flex; gap: 16px; margin-bottom: 28px; }
     .step-num {
@@ -83,9 +88,9 @@
     .step-body p { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
     .step-body code {
       display: block; background: var(--surface); border: 1px solid var(--border);
-      border-radius: 6px; padding: 10px 14px; font-family: 'SF Mono', 'Fira Code', monospace;
+      border-radius: 6px; padding: 10px 14px; font-family: var(--mono);
       font-size: 12.5px; color: var(--green); margin-top: 8px; white-space: pre; overflow-x: auto;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      box-shadow: none;
     }
     .controls {
       display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-bottom: 28px;
@@ -111,12 +116,12 @@
     }
     .presets { display: flex; gap: 10px; margin-bottom: 28px; flex-wrap: wrap; }
     .preset-btn {
-      background: var(--surface); border: 1px solid rgba(255,255,255,0.06); color: var(--text-muted);
+      background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);
       padding: 5px 12px; border-radius: 5px; font-size: 11px; cursor: pointer;
       font-weight: 500; transition: all .15s;
     }
-    .preset-btn:hover { color: var(--text); border-color: #3a3f4d; }
-    .preset-btn.active { color: #fff; border-color: var(--rose); background: rgba(218,44,90,0.1); }
+    .preset-btn:hover { color: var(--text); border-color: #cbd5e1; }
+    .preset-btn.active { color: var(--rose); border-color: var(--rose); background: #fff1f2; }
     .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
     .empty-state p { margin-top: 8px; font-size: 14px; }
     .metrics-grid {
@@ -124,9 +129,9 @@
       gap: 20px; margin-bottom: 28px;
     }
     .metric-card {
-      background: var(--surface); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
       padding: 24px; text-align: center;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+      box-shadow: 0 1px 2px rgba(15,23,42,0.04);
     }
     .metric-card .label {
       font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
@@ -137,9 +142,9 @@
     .metric-card .value.sum   { color: var(--rose); }
     .metric-card .value.avg   { color: var(--siri); }
     .result-section {
-      background: var(--surface); border: 1px solid rgba(255,255,255,0.06);
+      background: var(--surface); border: 1px solid var(--border);
       border-radius: 10px; padding: 32px; margin-bottom: 32px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.3), 0 1px 3px rgba(0,0,0,0.2);
+      box-shadow: 0 1px 2px rgba(15,23,42,0.04);
     }
     .agent-name {
       font-size: 14px; font-weight: 600; margin-bottom: 16px;
@@ -157,16 +162,16 @@
     .history-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px; }
     .history-table th {
       text-align: left; color: var(--text-muted); font-weight: 500;
-      padding: 6px 12px 6px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding: 6px 12px 6px 0; border-bottom: 1px solid var(--border);
     }
     .history-table td { padding: 6px 12px 6px 0; font-variant-numeric: tabular-nums; }
     .node-card {
       background: var(--surface2); border: 1px solid var(--border);
       border-radius: 8px; padding: 16px 20px; margin-bottom: 16px;
       min-height: 48px; transition: border-color .15s, box-shadow .15s;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+      box-shadow: none;
     }
-    .node-card:hover { border-color: #3a3f4d; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+    .node-card:hover { border-color: #cbd5e1; }
     .node-card.leaf { border-left: 3px solid var(--leaf-color); }
     .node-card.derived { border-left: 3px solid var(--derived-color); }
     .node-badge {
@@ -176,7 +181,15 @@
     .node-badge.leaf { background: rgba(2,167,209,0.12); color: var(--leaf-color); }
     .node-badge.derived { background: rgba(167,139,250,0.1); color: var(--derived-color); }
     .node-name {
-      font-size: 13px; font-weight: 600; font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 13px; font-weight: 600; font-family: var(--mono);
+      white-space: pre-wrap; line-height: 1.45; max-width: none; flex: 1;
+    }
+    .inspect-children {
+      margin-left: 18px; padding-left: 16px;
+      border-left: 2px solid var(--border);
+    }
+    .inspect-dsl {
+      margin-bottom: 20px;
     }
     .node-result {
       margin-left: auto; font-size: 13px; font-weight: 600;
@@ -192,15 +205,15 @@
     }
     .dsl-editor-wrap pre.dsl-highlight {
       position: absolute; top: 1px; left: 1px; right: 1px; bottom: 1px; margin: 0;
-      padding: 10px 14px; font-family: 'SF Mono', 'Fira Code', monospace;
+      padding: 10px 14px; font-family: var(--mono);
       font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word;
       pointer-events: none; overflow: auto; color: var(--text); background: transparent;
       border-radius: 6px;
     }
     textarea.dsl-editor {
       width: 100%; min-height: 110px; background: var(--surface);
-      border: 1px solid rgba(255,255,255,0.06); color: transparent; caret-color: var(--text);
-      border-radius: 6px; padding: 10px 14px; font-family: 'SF Mono', 'Fira Code', monospace;
+      border: 1px solid var(--border); color: transparent; caret-color: var(--text);
+      border-radius: 6px; padding: 10px 14px; font-family: var(--mono);
       font-size: 12px; line-height: 1.6; resize: none; outline: none;
       box-shadow: inset 0 1px 4px rgba(0,0,0,0.2);
     }
@@ -230,13 +243,14 @@
       position: relative; display: inline-flex; align-items: center; gap: 8px;
       background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
       padding: 7px 14px; margin: 4px 0; font-size: 12px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      box-shadow: none;
     }
     .tree-node-box.leaf { border-left: 3px solid var(--leaf-color); }
     .tree-node-box.derived { border-left: 3px solid var(--derived-color); }
     .tree-node-box.agg { border-left: 3px solid var(--rose); }
     .tree-node-box .tn-label {
-      font-family: 'SF Mono', 'Fira Code', monospace; font-weight: 600; color: var(--text);
+      font-family: var(--mono); font-weight: 600; color: var(--text);
+      white-space: pre-wrap; max-width: 640px; line-height: 1.4;
     }
     .tree-node-box .tn-badge {
       font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 3px;
@@ -260,11 +274,11 @@
     .tree-legend-dot.agg { background: var(--rose); }
     .metric-list { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 28px; }
     .metric-item {
-      background: var(--surface); border: 1px solid rgba(255,255,255,0.06);
+      background: var(--surface); border: 1px solid var(--border);
       border-radius: 8px; padding: 16px 20px; cursor: pointer; transition: all .15s;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+      box-shadow: none;
     }
-    .metric-item:hover { border-color: #3a3f4d; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+    .metric-item:hover { border-color: #cbd5e1; }
     .metric-item.active { border-color: var(--rose); border-left: 3px solid var(--rose); background: rgba(218,44,90,0.06); }
     .metric-item .metric-title { font-size: 14px; font-weight: 600; color: var(--text); }
     .metric-item .metric-dsl {
@@ -275,10 +289,10 @@
     .routing-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
     .routing-table th {
       text-align: left; color: var(--text-muted); font-weight: 500;
-      padding: 6px 12px 6px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding: 6px 12px 6px 0; border-bottom: 1px solid var(--border);
     }
     .routing-table td {
-      padding: 6px 12px 6px 0; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px;
+      padding: 6px 12px 6px 0; font-family: var(--mono); font-size: 12px;
     }
     .section-title {
       font-size: 15px; font-weight: 600; margin-bottom: 14px; margin-top: 28px;
@@ -296,33 +310,34 @@
     }
     .hint:hover::after {
       content: attr(data-tip); position: absolute; left: 24px; top: -4px;
-      background: var(--surface2); border: 1px solid rgba(255,255,255,0.06); color: var(--text);
+      background: var(--surface); border: 1px solid var(--border); color: var(--text);
       padding: 8px 12px; border-radius: 6px; font-size: 11px; font-weight: 400;
       white-space: nowrap; z-index: 10; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
     }
-    .tl-bar-wrap {
-      margin-top: 10px; position: relative; height: 28px;
-      background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
-      overflow: hidden;
+    .tl-chart {
+      display: flex; align-items: stretch; gap: 12px;
+      width: 100%; height: 72px; margin-top: 14px;
     }
-    .tl-bar-wrap.root-bar { border-color: var(--rose); box-shadow: 0 0 8px rgba(218,44,90,0.25); }
-    .tl-segment {
-      position: absolute; top: 0; bottom: 0; display: flex; align-items: center;
-      justify-content: center; font-size: 10px; font-weight: 600;
-      font-family: 'SF Mono', 'Fira Code', monospace; color: #fff;
-      overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-      border-right: 1px solid rgba(0,0,0,0.3); min-width: 2px;
-      transition: left .3s, width .3s;
+    .tl-chart.levels { height: 104px; }
+    .tl-ylabels {
+      width: 52px; display: flex; flex-direction: column; justify-content: space-between;
+      font-size: 10px; color: #86868b; text-align: right;
+      padding: 4px 0; line-height: 1; letter-spacing: -0.01em;
+      font-weight: 400;
     }
-    .tl-segment.val-true { background: rgba(2,167,209,0.5); }
-    .tl-segment.val-false { background: rgba(100,100,120,0.3); color: var(--text-muted); }
-    .tl-segment.val-string { background: rgba(167,139,250,0.4); }
-    .tl-segment.val-number { background: rgba(212,168,83,0.45); }
-    .tl-segment.val-new { outline: 2px solid var(--cyan); outline-offset: -2px; }
+    .tl-line {
+      display: block; flex: 1; height: 100%; margin: 0;
+      background: transparent; border: 0; border-radius: 0;
+      overflow: visible;
+    }
+    .snapshot-caption {
+      color: var(--text-muted); font-size: 13px; line-height: 1.55;
+      margin: 0 0 18px; max-width: 720px;
+    }
     .tl-axis {
-      display: flex; justify-content: space-between; font-size: 9px;
-      color: var(--text-muted); margin-top: 2px; padding: 0 2px;
-      font-family: 'SF Mono', 'Fira Code', monospace; font-variant-numeric: tabular-nums;
+      display: flex; justify-content: space-between; font-size: 10px;
+      color: #86868b; margin-top: 2px; padding: 0 64px 0 64px;
+      font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
     }
     @keyframes pulse-live {
       0%, 100% { opacity: 1; }
@@ -370,10 +385,10 @@
       </p>
       <p class="lead" style="margin-bottom:8px"><strong style="color:var(--cyan)">Example:</strong> Connection Induced Rebuffering Ratio (CIRR)</p>
       <div class="dsl-block">duration_where(
-  has_existed(playerStateChange == "play")
-  && !has_existed_within(playerStateChange == "seek", 5)
-  && latest_event_to_state(playerStateChange) == "buffer"
-) | aggregate(group_by(cdn), count, sum, avg)</div>
+  has_existed(playerStateChange == "play").describe("has the user ever played")
+  && !has_existed_within(playerStateChange == "seek", 5).describe("no recent seek")
+  && (latest_event_to_state(playerStateChange) == "buffer").describe("player is buffering")
+).describe("how long CIRR has been true") | aggregate(group_by(cdn), count, sum, avg)</div>
 
       <div class="step">
         <div class="step-num">1</div>
@@ -398,8 +413,8 @@
         <div class="step-body">
           <h3>Stream sub-computations</h3>
           <p>Switch to the <strong>Computation Progress</strong> tab. Select a registered metric,
-             enter a session ID (e.g., <code>sess-0</code>) and query time, then click
-             <strong>▶ Stream</strong> to watch every agent's timeline update live as events flow in.</p>
+             enter a session ID (e.g., <code>sess-0</code>), then click
+             <strong>▶ Live</strong> to play time forward through every agent's timeline.</p>
         </div>
       </div>
       <div class="step">
@@ -427,10 +442,10 @@
         <div class="dsl-editor-wrap">
           <pre class="dsl-highlight" id="dsl-highlight" aria-hidden="true"></pre>
           <textarea id="dsl-input" class="dsl-editor">duration_where(
-  has_existed(playerStateChange == "play")
-  && !has_existed_within(playerStateChange == "seek", 5)
-  && latest_event_to_state(playerStateChange) == "buffer"
-) | aggregate(group_by(cdn), count, sum, avg)</textarea>
+  has_existed(playerStateChange == "play").describe("has the user ever played")
+  && !has_existed_within(playerStateChange == "seek", 5).describe("no recent seek")
+  && (latest_event_to_state(playerStateChange) == "buffer").describe("player is buffering")
+).describe("how long CIRR has been true") | aggregate(group_by(cdn), count, sum, avg)</textarea>
         </div>
         <div style="text-align:right"><button class="btn" id="deploy-btn">Deploy</button></div>
       </div>
@@ -450,26 +465,32 @@
     <div id="inspect-metric-list" class="metric-list">
       <div class="empty-state" style="padding:20px"><p>No metrics registered. Deploy one first.</p></div>
     </div>
+    <pre id="inspect-dsl" class="dsl-block inspect-dsl" style="display:none"></pre>
 
     <div class="controls">
       <label for="session-input">Session ID:</label>
-      <input id="session-input" type="text" placeholder="e.g. sess-0" style="width:240px" />
-      <label for="time-input">From (t₁):</label>
-      <input id="time-input" type="number" value="0" style="width:100px" min="0" />
-      <button class="btn" id="stream-btn">▶ Stream</button>
+      <input id="session-input" type="text" value="sess-0" placeholder="e.g. sess-0" style="width:240px" />
+      <label for="time-input">t =</label>
+      <input id="time-input" type="number" value="1" style="width:100px" min="0" />
+      <button class="btn" id="stream-btn">▶ Live</button>
       <button class="stop-btn" id="stop-stream-btn" style="display:none">■ Stop</button>
       <button class="btn" id="snapshot-btn" style="background:var(--siri-mid)">⏎ Snapshot</button>
       <div class="poll-toggle">
-        <label for="inspect-interval">Interval:</label>
-        <input type="number" id="inspect-interval" class="interval" value="2" min="1" max="30" />
-        <label for="inspect-interval">s</label>
+        <label for="inspect-interval">Step:</label>
+        <input type="number" id="inspect-interval" class="interval" value="2" min="1" max="50" />
+        <label for="inspect-interval">t / tick</label>
       </div>
       <span id="stream-indicator" style="display:none" class="stream-live"><span class="pulse"></span>Live</span>
+    </div>
+    <div class="presets">
+      <button type="button" class="preset-btn" data-session="sess-0">sess-0</button>
+      <button type="button" class="preset-btn" data-session="sess-1">sess-1</button>
+      <button type="button" class="preset-btn" data-session="sess-2">sess-2</button>
     </div>
 
     <div id="tree-output">
       <div class="empty-state">
-        <p>Select a metric above, enter a session ID and query time, then click <strong>▶ Stream</strong> to watch sub-computations update live.</p>
+        <p><strong>Snapshot</strong> is the value of each clause at one time — like the README expression tree, with answers filled in. <strong>Live</strong> draws those values as a step line over time.</p>
       </div>
     </div>
   </div>
@@ -524,7 +545,7 @@
 
     function highlightDsl(text) {
       return escHtml(text)
-        .replace(/\b(duration_where|has_existed|has_existed_within|latest_event_to_state|aggregate|group_by)\b/g,
+        .replace(/\b(duration_where|has_existed|has_existed_within|latest_event_to_state|aggregate|group_by|describe)\b/g,
           '<span class="dsl-kw">$1</span>')
         .replace(/\b(count|sum|avg|min|max)\b/g, '<span class="dsl-fn">$1</span>')
         .replace(/&quot;([^&]*)&quot;/g, '<span class="dsl-str">"$1"</span>')
@@ -586,35 +607,80 @@
       return formatEventValue(last.value);
     }
 
-    function classifyValue(val) {
-      if (val === 'true') return 'val-true';
-      if (val === 'false') return 'val-false';
-      if (/^-?\d+(\.\d+)?$/.test(val)) return 'val-number';
-      return 'val-string';
+    function discreteLevels(labels) {
+      const seen = [];
+      for (let i = 0; i < labels.length; i++) {
+        if (seen.indexOf(labels[i]) < 0) seen.push(labels[i]);
+      }
+      if (seen.every((v) => v === 'true' || v === 'false')) {
+        return ['false', 'true'];
+      }
+      const order = ['init', 'idle', 'play', 'playing', 'buffer', 'buffering', 'pause', 'paused', 'seek'];
+      const levels = [];
+      for (let i = 0; i < order.length; i++) {
+        for (let j = 0; j < seen.length; j++) {
+          if (seen[j].toLowerCase() === order[i] && levels.indexOf(seen[j]) < 0) {
+            levels.push(seen[j]);
+          }
+        }
+      }
+      for (let j = 0; j < seen.length; j++) {
+        if (levels.indexOf(seen[j]) < 0) levels.push(seen[j]);
+      }
+      return levels;
     }
 
-    function renderTimelineBar(result, prevPointCount, isRoot, globalMin, globalMax) {
+    function renderStepLine(result, tMin, tMax) {
       const pts = getTimelinePoints(result);
-      if (pts.length === 0) return '<span style="color:var(--text-muted);font-size:12px">No data yet</span>';
-
-      const tMin = globalMin;
-      const tMax = globalMax;
+      if (pts.length === 0) return '';
       const span = tMax - tMin || 1;
-
-      let html = '<div class="tl-bar-wrap' + (isRoot ? ' root-bar' : '') + '">';
+      const labels = pts.map((pt) => formatEventValue(pt.value));
+      const numeric = labels.every((v) => /^-?\d+(\.\d+)?$/.test(v));
+      const levels = numeric ? null : discreteLevels(labels);
+      const w = 1100;
+      const h = numeric ? 64 : Math.max(72, 16 + (levels.length * 18));
+      const pad = 8;
+      const xAt = (t) => pad + ((Math.min(Math.max(t, tMin), tMax) - tMin) / span) * (w - pad * 2);
+      let yAt;
+      let axisLabels = [];
+      if (numeric) {
+        const nums = labels.map(Number);
+        const lo = Math.min.apply(null, nums.concat([0]));
+        const hi = Math.max.apply(null, nums.concat([1]));
+        const range = hi - lo || 1;
+        yAt = (v) => h - pad - ((Number(v) - lo) / range) * (h - pad * 2);
+        axisLabels = [String(hi), String(lo)];
+      } else {
+        yAt = (v) => {
+          const i = levels.indexOf(v);
+          if (levels.length < 2) return h / 2;
+          return h - pad - (Math.max(i, 0) / (levels.length - 1)) * (h - pad * 2);
+        };
+        axisLabels = levels.slice().reverse();
+      }
+      let d = '';
       for (let i = 0; i < pts.length; i++) {
         const pt = pts[i];
-        const val = formatEventValue(pt.value);
-        const t2 = pt.t2 != null ? pt.t2 : tMax;
-        const left = ((pt.t1 - tMin) / span * 100);
-        const width = (Math.max((t2 - pt.t1) / span * 100, 0.5));
-        const isNew = prevPointCount != null && i >= prevPointCount;
-        const cls = classifyValue(val) + (isNew ? ' val-new' : '');
-        html += '<div class="tl-segment ' + cls + '" style="left:' + left + '%;width:' + width +
-          '%" title="[' + pt.t1 + ', ' + (pt.t2 != null ? pt.t2 : '∞') + ') = ' + val + '">' +
-          escHtml(val) + '</div>';
+        const y = yAt(labels[i]).toFixed(1);
+        const x1 = xAt(pt.t1).toFixed(1);
+        const x2 = xAt(pt.t2 != null ? pt.t2 : tMax).toFixed(1);
+        d += (i === 0 ? 'M' : 'L') + x1 + ' ' + y + 'H' + x2;
       }
-      html += '</div>';
+      const baseline = h - pad;
+      let svg = '<svg class="tl-line" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" role="img">';
+      svg += '<line x1="' + pad + '" x2="' + (w - pad) + '" y1="' + baseline + '" y2="' + baseline +
+        '" stroke="#e5e5ea" stroke-width="1" vector-effect="non-scaling-stroke" />';
+      svg += '<path d="' + d + '" fill="none" stroke="#1d1d1f" stroke-width="1.25" ' +
+        'stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" />';
+      svg += '</svg>';
+      const chartClass = 'tl-chart' + (numeric ? '' : ' levels');
+      const chartH = numeric ? 72 : Math.max(104, 20 + levels.length * 20);
+      let html = '<div class="' + chartClass + '" style="height:' + chartH + 'px">';
+      html += '<div class="tl-ylabels">';
+      for (let i = 0; i < axisLabels.length; i++) {
+        html += '<span>' + escHtml(axisLabels[i]) + '</span>';
+      }
+      html += '</div>' + svg + '</div>';
       return html;
     }
 
@@ -651,48 +717,77 @@
       }
     });
 
-    // Build a friendly label + hint from a node's operation/description.
-    // Returns { label, hint }.
-    function friendlyLabel(node) {
-      if (node.kind === 'leaf') {
-        const s = node.agent_suffix;
-        const desc = node.description || '';
-        if (s.startsWith('has-existed-within-')) {
-          const m = desc.match(/Has (.+?) been true within the last (\d+)/);
-          if (m) return { label: m[1].replace(/ == /g, '-is-').replace(/\s+/g, '-') + '-within-' + m[2],
-            hint: 'true if ' + m[1] + ' was seen in the last ' + m[2] + ' time units' };
-        }
-        if (s.startsWith('has-existed-')) {
-          const m = desc.match(/Has (.+?) ever been true/);
-          if (m) return { label: m[1].replace(/ == /g, '-is-').replace(/\s+/g, '-') + '-ever-true',
-            hint: 'true once ' + m[1] + ' has been seen at least once' };
-        }
-        if (s.startsWith('latest-event-to-state-')) {
-          const m = desc.match(/latest value of "(.+?)"/);
-          if (m) return { label: m[1] + '-state-changes',
-            hint: 'tracks the latest value of "' + m[1] + '" from source events' };
-        }
-        return { label: s.replace(/-\d+$/, ''), hint: 'receives source events' };
+    function quotePredicate(expr) {
+      return expr.replace(/==\s*([^"'\s),]+)/g, '== "$1"');
+    }
+
+    function quoteLiteral(value) {
+      if (value === '' || value == null) return '""';
+      if (/^-?\d+(\.\d+)?$/.test(value)) return value;
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        return value;
       }
+      return '"' + value + '"';
+    }
+
+    function captionOf(node) {
+      const caption = node && node.caption;
+      if (typeof caption === 'string') return caption.trim();
+      return '';
+    }
+
+    // Labels in the DSL the user wrote, built from the child tree.
+    function dslFrom(node, children) {
+      const desc = node.description || '';
       const op = node.operation || '';
-      if (op === 'not') return { label: 'not', hint: 'negate the child timeline' };
-      if (op === 'and') return { label: 'and', hint: 'true only when all children are true' };
-      if (op === 'or') return { label: 'or', hint: 'true when any child is true' };
-      if (op === 'duration-where') return { label: 'cumulative-duration',
-        hint: 'counts the total time the child timeline\'s state is true' };
-      if (op === 'duration-in-cur-state') return { label: 'current-state-duration',
-        hint: 'how long the child has been in its current state' };
-      if (op.startsWith('equal-to(')) return { label: 'equals-' + op.slice(9, -1),
-        hint: 'true when child\'s value equals ' + op.slice(9, -1) };
-      if (op.startsWith('greater-than(')) return { label: 'greater-than-' + op.slice(13, -1),
-        hint: 'true when child\'s value > ' + op.slice(13, -1) };
-      if (op.startsWith('greater-than-or-equal(')) return { label: 'at-least-' + op.slice(21, -1),
-        hint: 'true when child\'s value ≥ ' + op.slice(21, -1) };
-      if (op.startsWith('less-than(')) return { label: 'less-than-' + op.slice(9, -1),
-        hint: 'true when child\'s value < ' + op.slice(9, -1) };
-      if (op.startsWith('less-than-or-equal(')) return { label: 'at-most-' + op.slice(18, -1),
-        hint: 'true when child\'s value ≤ ' + op.slice(18, -1) };
-      return { label: op, hint: '' };
+      const suffix = String(node.agent_suffix || '');
+      const a = children[0] && children[0].dsl;
+      const b = children[1] && children[1].dsl;
+
+      const ever = desc.match(/Has (.+?) ever been true/);
+      if (ever) {
+        return { dsl: 'has_existed(' + quotePredicate(ever[1]) + ')', hint: 'Has this ever happened?' };
+      }
+      const within = desc.match(/Has (.+?) been true within the last (\d+)/);
+      if (within) {
+        return {
+          dsl: 'has_existed_within(' + quotePredicate(within[1]) + ', ' + within[2] + ')',
+          hint: 'True if it happened in the last ' + within[2] + ' time units',
+        };
+      }
+      const latest = desc.match(/latest value of "(.+?)"/i);
+      if (latest) {
+        return {
+          dsl: 'latest_event_to_state(' + latest[1] + ')',
+          hint: 'Current value of ' + latest[1],
+        };
+      }
+      if (op === 'not' && a) return { dsl: '!' + a, hint: 'The opposite of the clause below' };
+      if (op === 'and') return { dsl: '&&', hint: 'True when every clause below is true' };
+      if (op === 'or') return { dsl: '||', hint: 'True when any clause below is true' };
+      if (op === 'duration-where' && a) {
+        return { dsl: 'duration_where(…)', hint: 'How long the condition below has been true' };
+      }
+      if (op === 'duration-in-cur-state' && a) {
+        return { dsl: 'duration_in_cur_state(…)', hint: 'How long the child has been in its current state' };
+      }
+      if (op.startsWith('equal-to(') && a) {
+        const value = quoteLiteral(op.slice(9, -1));
+        return { dsl: a + ' == ' + value, hint: 'True when that state is ' + value };
+      }
+      if (op.startsWith('greater-than(') && a) {
+        return { dsl: a + ' > ' + quoteLiteral(op.slice(13, -1)), hint: 'Compare the child to a constant' };
+      }
+      if (op.startsWith('greater-than-or-equal(') && a) {
+        return { dsl: a + ' >= ' + quoteLiteral(op.slice(21, -1)), hint: 'Compare the child to a constant' };
+      }
+      if (op.startsWith('less-than(') && a) {
+        return { dsl: a + ' < ' + quoteLiteral(op.slice(9, -1)), hint: 'Compare the child to a constant' };
+      }
+      if (op.startsWith('less-than-or-equal(') && a) {
+        return { dsl: a + ' <= ' + quoteLiteral(op.slice(18, -1)), hint: 'Compare the child to a constant' };
+      }
+      return { dsl: suffix.replace(/-\d+$/, '') || op || 'node', hint: desc };
     }
 
     // Reconstruct the tree from flat leaves + derived_nodes arrays.
@@ -737,10 +832,33 @@
             if (child) children.push(child);
           }
         }
-        const fl = friendlyLabel(node);
-        return { ...node, children, label: fl.label, hint: fl.hint };
+        const named = dslFrom(node, children);
+        const hint = captionOf(node) || named.hint;
+        return { ...node, children, label: named.dsl, hint, dsl: named.dsl };
       }
-      return buildNode();
+      return flattenBool(buildNode());
+    }
+
+    // The parser builds binary && / ||. Show one node with every clause under it.
+    function flattenBool(node) {
+      if (!node) return node;
+      const children = (node.children || []).map(flattenBool);
+      if (node.operation !== 'and' && node.operation !== 'or') {
+        return { ...node, children };
+      }
+      const flat = [];
+      for (const child of children) {
+        if (child.operation === node.operation) {
+          flat.push.apply(flat, child.children);
+        } else {
+          flat.push(child);
+        }
+      }
+      const symbol = node.operation === 'and' ? '&&' : '||';
+      const hint = captionOf(node) || (node.operation === 'and'
+        ? 'True when every clause below is true'
+        : 'True when any clause below is true');
+      return { ...node, children: flat, label: symbol, hint, dsl: symbol };
     }
 
     function renderTreeNodeHtml(node, isRoot) {
@@ -841,6 +959,11 @@
     let selectedMetric = null;
     let streamTimer = null;
     let prevPointCounts = {};
+    let replayHistory = {};
+    let playhead = 1;
+    let playbackStart = 1;
+    let playbackEnd = 250;
+    let queryInFlight = false;
 
     async function loadInspectMetrics() {
       try {
@@ -866,12 +989,34 @@
             el.querySelectorAll('.metric-item').forEach(i => i.classList.remove('active'));
             item.classList.add('active');
             selectedMetric = el._metrics.find(m => m.name === item.dataset.metricName);
+            showInspectDsl(selectedMetric);
           });
         });
+        if (!selectedMetric && metrics.length) {
+          selectedMetric = metrics[0];
+          const first = el.querySelector('.metric-item');
+          if (first) first.classList.add('active');
+        }
+        showInspectDsl(selectedMetric);
       } catch (e) { /* ignore */ }
     }
 
+    function showInspectDsl(metric) {
+      const box = document.getElementById('inspect-dsl');
+      if (!box) return;
+      if (!metric) { box.style.display = 'none'; box.textContent = ''; return; }
+      box.style.display = '';
+      box.textContent = metric.dsl;
+    }
+
     const sessionInput = document.getElementById('session-input');
+    document.querySelectorAll('#inspect-panel .preset-btn[data-session]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        sessionInput.value = btn.dataset.session;
+        document.querySelectorAll('#inspect-panel .preset-btn[data-session]').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
     const timeInput = document.getElementById('time-input');
     const streamBtn = document.getElementById('stream-btn');
     const stopStreamBtn = document.getElementById('stop-stream-btn');
@@ -907,39 +1052,83 @@
       }
     }
 
-    async function queryAllNodes() {
+    function rememberPoint(suffix, result, t) {
+      const pts = getTimelinePoints(result);
+      if (!pts.length) return;
+      const raw = pts[0].value;
+      const value = formatEventValue(raw);
+      const list = replayHistory[suffix] || (replayHistory[suffix] = []);
+      const last = list[list.length - 1];
+      if (last && formatEventValue(last.value) === value) {
+        last.t2 = t + 1;
+        return;
+      }
+      if (last) last.t2 = t;
+      list.push({ t1: t, t2: t + 1, value: raw });
+    }
+
+    async function queryAllNodes(playing) {
       if (!selectedMetric) { setStatus('Select a metric first', false); return; }
       const session = sessionInput.value.trim();
-      const t1 = parseInt(timeInput.value, 10);
+      const t1 = playing ? playhead : parseInt(timeInput.value, 10);
       if (!session || isNaN(t1)) { setStatus('Enter session ID and query time', false); return; }
 
       const nodes = buildNodeList();
-      const results = await Promise.all(nodes.map(n => queryNode(session, t1, n)));
-      renderInspectTree(session, t1, results);
+      let results = await Promise.all(nodes.map(n => queryNode(session, t1, n)));
+      if (playing) {
+        for (const r of results) rememberPoint(r.suffix, r.result, t1);
+        results = results.map((r) => ({
+          ...r,
+          result: { results: replayHistory[r.suffix] || [] },
+        }));
+      }
+      const axis = playing
+        ? { globalMin: playbackStart, globalMax: playbackEnd }
+        : null;
+      renderInspectTree(session, t1, results, axis, playing);
 
-      // Update prev counts for next tick highlight
       for (const r of results) {
         prevPointCounts[r.suffix] = getTimelinePoints(r.result).length;
       }
 
-      setStatus('Streamed ' + results.length + ' nodes at t=' + t1 + ' — ' + new Date().toLocaleTimeString(), true);
+      setStatus((playing ? 'Live t=' : 'Snapshot t=') + t1 + ' — ' + new Date().toLocaleTimeString(), true);
     }
 
     function startStream() {
       if (!selectedMetric) { setStatus('Select a metric first', false); return; }
       const session = sessionInput.value.trim();
-      const t1 = parseInt(timeInput.value, 10);
-      if (!session || isNaN(t1)) { setStatus('Enter session ID and query time', false); return; }
+      if (!session) { setStatus('Enter session ID', false); return; }
 
       stopStream();
       prevPointCounts = {};
+      replayHistory = {};
+      playbackStart = 1;
+      playbackEnd = 250;
+      playhead = playbackStart;
+      timeInput.value = String(playhead);
       streamBtn.style.display = 'none';
       stopStreamBtn.style.display = '';
       streamIndicator.style.display = '';
 
-      queryAllNodes();
-      const ms = (parseInt(inspectInterval.value, 10) || 2) * 1000;
-      streamTimer = setInterval(queryAllNodes, ms);
+      async function tick() {
+        if (queryInFlight) return;
+        queryInFlight = true;
+        try {
+          await queryAllNodes(true);
+          const step = Math.max(1, parseInt(inspectInterval.value, 10) || 2);
+          playhead += step;
+          if (playhead > playbackEnd) {
+            playhead = playbackStart;
+            replayHistory = {};
+            prevPointCounts = {};
+          }
+          timeInput.value = String(playhead);
+        } finally {
+          queryInFlight = false;
+        }
+      }
+      tick();
+      streamTimer = setInterval(tick, 400);
     }
 
     function stopStream() {
@@ -951,75 +1140,90 @@
 
     streamBtn.addEventListener('click', startStream);
     stopStreamBtn.addEventListener('click', stopStream);
-    snapshotBtn.addEventListener('click', () => { stopStream(); queryAllNodes(); });
-    inspectInterval.addEventListener('change', () => {
-      if (streamTimer) startStream();
-    });
+    snapshotBtn.addEventListener('click', () => { stopStream(); queryAllNodes(false); });
 
-    function renderInspectTree(session, t1, results) {
-      // Find the root node (lowest counter among derived = first in DFS = the root)
-      let rootSuffix = null;
-      let rootCounter = Infinity;
-      for (const r of results) {
-        if (r.type === 'derived') {
-          const num = parseInt(r.suffix.replace(/.*-/, ''), 10);
-          if (num < rootCounter) { rootCounter = num; rootSuffix = r.suffix; }
-        }
-      }
-
-      // Compute global time range across ALL nodes so bars are aligned
-      let globalMin = Infinity;
-      let globalMax = 0;
-      for (const r of results) {
-        if (r.status !== 'ok') continue;
-        const pts = getTimelinePoints(r.result);
-        for (const pt of pts) {
-          if (pt.t1 < globalMin) globalMin = pt.t1;
-          const end = pt.t2 != null ? pt.t2 : pt.t1 + 10;
-          if (end > globalMax) globalMax = end;
+    function renderInspectTree(session, t1, results, axis, playing) {
+      let globalMin = axis ? axis.globalMin : Infinity;
+      let globalMax = axis ? axis.globalMax : 0;
+      if (!axis) {
+        for (const r of results) {
+          if (r.status !== 'ok') continue;
+          const pts = getTimelinePoints(r.result);
+          for (const pt of pts) {
+            if (pt.t1 < globalMin) globalMin = pt.t1;
+            const end = pt.t2 != null ? pt.t2 : pt.t1 + 10;
+            if (end > globalMax) globalMax = end;
+          }
         }
       }
       if (globalMin === Infinity) globalMin = 0;
       if (globalMax === 0) globalMax = 1;
+      const bySuffix = {};
+      for (const r of results) bySuffix[r.suffix] = r;
+      const tree = rebuildTree(selectedMetric);
 
-      // Enrich results with friendly labels
-      const enriched = results.map(r => {
-        const fl = friendlyLabel({ kind: r.type, agent_suffix: r.suffix, description: r.desc, operation: r.op });
-        return { ...r, label: fl.label, hint: fl.hint, isRoot: r.suffix === rootSuffix };
-      });
+      function zip(node, isRoot) {
+        if (!node) return null;
+        const queried = bySuffix[node.agent_suffix] || {};
+        return {
+          ...node,
+          ...queried,
+          suffix: node.agent_suffix,
+          isRoot,
+          children: (node.children || []).map((child) => zip(child, false)),
+        };
+      }
+      const rooted = zip(tree, true);
 
       let html = '<div class="result-section">' +
         '<div class="agent-name">Session: <code>' + escHtml(session) +
         '</code> — Metric: <code>' + escHtml(selectedMetric.name) +
-        '</code> from t₁ = <code>' + t1 + '</code></div>';
+        '</code> at t = <code>' + t1 + '</code></div>';
 
-      // Shared time axis at the top
-      html += '<div class="tl-axis" style="margin-bottom:8px;font-size:11px">' +
-        '<span>t = ' + globalMin + '</span><span>t = ' + globalMax + '</span></div>';
+      if (playing) {
+        html += '<p class="snapshot-caption">Live: each line is that clause over time.</p>';
+        html += '<div class="tl-axis" style="margin-bottom:4px">' +
+          '<span>' + globalMin + '</span><span>' + globalMax + '</span></div>';
+      } else {
+        html += '<p class="snapshot-caption">Snapshot: the answer to each clause <em>at this instant</em>. It is not a history. Use Live to watch the timeline.</p>';
+      }
 
-      for (const r of enriched) {
-        const currentValue = r.status === 'ok' ? summarizeResult(r.result) : '—';
-        const valueCls = r.status === 'ok' ? 'ok' : 'err';
-        const rootTag = r.isRoot ? ' <span style="color:var(--rose);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">★ root</span>' : '';
-        html += '<div class="node-card ' + r.type + '"' + (r.isRoot ? ' style="border-color:var(--rose);box-shadow:0 0 12px rgba(218,44,90,0.15)"' : '') + '>' +
-          '<div class="node-header">' +
-            '<span class="node-name">' + escHtml(r.label) + rootTag + '</span>' +
-            '<span class="node-result ' + valueCls + '">' + escHtml(currentValue) + '</span>' +
-          '</div>' +
-          (r.hint ? '<div class="node-desc">' + escHtml(r.hint) + '</div>' : '');
-
-        if (r.status === 'err') {
-          html += '<div class="error-msg" style="margin-top:8px">' + escHtml(r.error) + '</div>';
-        } else {
-          const prev = prevPointCounts[r.suffix];
-          html += renderTimelineBar(r.result, prev, r.isRoot, globalMin, globalMax);
-        }
-
-        html += '</div>';
+      if (rooted) {
+        html += renderInspectNode(rooted, globalMin, globalMax, playing);
       }
 
       html += '</div>';
       treeOutput.innerHTML = html;
+    }
+
+    function renderInspectNode(r, globalMin, globalMax, playing) {
+      const currentValue = r.status === 'ok' ? summarizeResult(r.result) : (r.status === 'err' ? '—' : '—');
+      const valueCls = r.status === 'ok' ? 'ok' : (r.status === 'err' ? 'err' : 'pending');
+      const rootTag = r.isRoot ? ' <span style="color:var(--rose);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">metric</span>' : '';
+      let html = '<div class="inspect-node">' +
+        '<div class="node-card ' + (r.kind || r.type || '') + '"' + (r.isRoot ? ' style="border-color:var(--rose);box-shadow:0 0 12px rgba(218,44,90,0.15)"' : '') + '>' +
+          '<div class="node-header">' +
+            '<span class="node-name">' + escHtml(r.label || r.dsl || '') + rootTag + '</span>' +
+            '<span class="node-result ' + valueCls + '">' + escHtml(currentValue) + '</span>' +
+          '</div>' +
+          (r.hint ? '<div class="node-desc">' + escHtml(r.hint) + '</div>' : '');
+
+      if (r.status === 'err') {
+        html += '<div class="error-msg" style="margin-top:8px">' + escHtml(r.error) + '</div>';
+      } else if (r.status === 'ok' && playing) {
+        html += renderStepLine(r.result, globalMin, globalMax);
+      }
+
+      html += '</div>';
+      if (r.children && r.children.length) {
+        html += '<div class="inspect-children">';
+        for (const child of r.children) {
+          html += renderInspectNode(child, globalMin, globalMax, playing);
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+      return html;
     }
 
     // ========== Live Dashboard ==========
@@ -1043,16 +1247,26 @@
           el.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">No metrics with aggregation registered.</span>';
           return;
         }
+        const demoGroups = ['akamai', 'cloudfront', 'fastly'];
         let html = '';
         for (const m of withAgg) {
           const col = m.aggregation.group_by_column;
           html += '<span style="font-size:12px;color:var(--text-muted);margin-right:8px;">' +
-            escHtml(m.name) + ' (group_by: ' + escHtml(col) + '):</span>' +
-            '<button class="preset-btn" data-agent="aggregator-' + escHtml(col) + '-"' +
-            ' onclick="agentInput.value=this.dataset.agent; agentInput.focus();">' +
-            'aggregator-' + escHtml(col) + '-{value}</button> ';
+            escHtml(m.name) + ' (group_by: ' + escHtml(col) + '):</span>';
+          for (const value of demoGroups) {
+            const agent = 'aggregator-' + col + '-' + value;
+            html += '<button class="preset-btn" data-agent="' + escHtml(agent) + '">' +
+              escHtml(agent) + '</button> ';
+          }
         }
         el.innerHTML = html;
+        el.querySelectorAll('.preset-btn[data-agent]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            agentInput.value = btn.dataset.agent;
+            doFetch();
+            if (pollCheck.checked) startPoll();
+          });
+        });
       } catch (e) { /* ignore */ }
     }
 

@@ -26,8 +26,8 @@ Docker, Rust ≥ 1.94 (`wasm32-wasip2`), and [Golem CLI 1.6+](https://learn.gole
 
 It starts Golem and Kafka, deploys CIRR across three CDNs, feeds playback events, and opens the dashboard at http://localhost:3000 (or the next free port). Then try:
 
-- **Computation Progress** → `demo-akamai-1` → query at time `250` — every clause of CIRR, live
-- Same session, time `120` — play has started, buffering has not
+- **Computation Progress** → `cirr` → `sess-0` → **Snapshot** at `120` — each clause’s value at that instant
+- **▶ Live** — the same clauses as a step line over time
 - The aggregate view — count / sum / avg by CDN (akamai, cloudfront, fastly)
 
 ```shell
@@ -96,7 +96,9 @@ duration-where          how long the condition has been true
 
 Point-in-time lookup on any node is local. The push already happened.
 
-![Live aggregation](images/aggregate.png)
+![Computation streaming](images/stream.png)
+
+![Player state timelines](images/live.png)
 
 ## Scale, briefly
 
@@ -115,6 +117,7 @@ That is the same “always on, bursty, must be correct” regime those engines t
 | `&&` `\|\|` `!` | Derived | Boolean combination |
 | `duration_where(expr)` | Derived | Cumulative time `expr` is true |
 | `duration_in_cur_state(expr)` | Derived | Time since `expr` last changed |
+| `.describe("…")` | Any node | Caption on the computation graph; falls back to the default gloss |
 | `\| aggregate(group_by(col), …)` | Root | Count / sum / avg / min / max across sessions |
 
 Agent names: `{session}-{metric}-{operation}-{n}`. Aggregators: `aggregator-{metric}-{column}-{value}`.

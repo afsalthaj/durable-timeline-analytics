@@ -1,18 +1,24 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+use std::collections::BTreeMap;
 use std::fmt;
 
 use common_lib::{
     AggregationConfig, AggregationFunction, CompareOp, EventColumnName, EventPredicate, EventValue,
-    TimeLineOp,
+    NodeNumber, TimeLineOp,
 };
 
 use crate::lexer::{LexError, Lexer, Spanned, Token};
 
 /// A parsed DSL query: the timeline expression plus optional aggregation.
+///
+/// Captions come from `.describe("...")` and are keyed by the same
+/// pre-order node numbers as `TimeLineOp::numbered_nodes`. They are
+/// display-only — they do not create agents.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ParsedTimeline {
     pub op: TimeLineOp,
     pub aggregation: Option<AggregationConfig>,
+    pub captions: BTreeMap<NodeNumber, String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -45,9 +51,10 @@ impl From<LexError> for ParseError {
 /// query       = expr ("|" aggregate)?
 /// expr        = or_expr
 /// or_expr     = and_expr ("||" and_expr)*
-/// and_expr    = unary ("&&" unary)*
+/// and_expr    = described ("&&" described)*
+/// described   = unary (".describe" "(" string ")")*
 /// unary       = "!" unary | postfix
-/// postfix     = primary (cmp_op value)?
+/// postfix     = primary (".describe" "(" string ")")* (cmp_op value)?
 /// primary     = "(" expr ")"
 ///             | "latest_event_to_state" "(" column ")"
 ///             | "has_existed" "(" predicate ")"
@@ -94,6 +101,51 @@ impl Parser {
         &self.current().token
     }
 
+    fn peek_at(&self, offset: usize) -> &Token {
+        let i = self.pos.saturating_add(offset).min(self.tokens.len() - 1);
+        &self.tokens[i].token
+    }
+
+    fn at_describe(&self) -> bool {
+        matches!(self.peek(), Token::Dot)
+            && matches!(self.peek_at(1), Token::Ident(name) if name == "describe")
+    }
+
+    fn is_compare_op(token: &Token) -> bool {
+        matches!(
+            token,
+            Token::EqualEqual
+                | Token::Greater
+                | Token::GreaterEqual
+                | Token::Less
+                | Token::LessEqual
+        )
+    }
+
+    /// True when `.describe("...")*` is followed by a comparison, so the
+    /// caption belongs to the primary and not the surrounding unary/`&&`.
+    fn describe_then_compare(&self) -> bool {
+        let mut offset = 0;
+        loop {
+            if !matches!(self.peek_at(offset), Token::Dot) {
+                return Self::is_compare_op(self.peek_at(offset));
+            }
+            if !matches!(self.peek_at(offset + 1), Token::Ident(name) if name == "describe") {
+                return false;
+            }
+            if !matches!(self.peek_at(offset + 2), Token::LParen) {
+                return false;
+            }
+            if !matches!(self.peek_at(offset + 3), Token::StringLit(_)) {
+                return false;
+            }
+            if !matches!(self.peek_at(offset + 4), Token::RParen) {
+                return false;
+            }
+            offset += 5;
+        }
+    }
+
     fn advance(&mut self) {
         if self.pos + 1 < self.tokens.len() {
             self.pos += 1;
@@ -117,51 +169,69 @@ impl Parser {
     }
 
     fn parse_query(&mut self) -> Result<ParsedTimeline, ParseError> {
-        let op = self.parse_expr()?;
+        let expr = self.parse_expr()?;
         let aggregation = if *self.peek() == Token::Pipe {
             self.advance();
             Some(self.parse_aggregate()?)
         } else {
             None
         };
-        Ok(ParsedTimeline { op, aggregation })
+        let (op, captions) = expr.flatten();
+        Ok(ParsedTimeline {
+            op,
+            aggregation,
+            captions,
+        })
     }
 
-    fn parse_expr(&mut self) -> Result<TimeLineOp, ParseError> {
+    fn parse_expr(&mut self) -> Result<Annotated, ParseError> {
         self.parse_or()
     }
 
-    fn parse_or(&mut self) -> Result<TimeLineOp, ParseError> {
+    fn parse_or(&mut self) -> Result<Annotated, ParseError> {
         let mut left = self.parse_and()?;
         while *self.peek() == Token::PipePipe {
             self.advance();
             let right = self.parse_and()?;
-            left = TimeLineOp::or(left, right);
+            left = Annotated::or(left, right);
         }
         Ok(left)
     }
 
-    fn parse_and(&mut self) -> Result<TimeLineOp, ParseError> {
-        let mut left = self.parse_unary()?;
+    fn parse_and(&mut self) -> Result<Annotated, ParseError> {
+        let mut left = self.parse_described()?;
         while *self.peek() == Token::AmpAmp {
             self.advance();
-            let right = self.parse_unary()?;
-            left = TimeLineOp::and(left, right);
+            let right = self.parse_described()?;
+            left = Annotated::and(left, right);
         }
         Ok(left)
     }
 
-    fn parse_unary(&mut self) -> Result<TimeLineOp, ParseError> {
+    fn parse_described(&mut self) -> Result<Annotated, ParseError> {
+        let mut expr = self.parse_unary()?;
+        while self.at_describe() {
+            expr = expr.with_caption(self.parse_describe_call()?);
+        }
+        Ok(expr)
+    }
+
+    fn parse_unary(&mut self) -> Result<Annotated, ParseError> {
         if *self.peek() == Token::Bang {
             self.advance();
             let inner = self.parse_unary()?;
-            return Ok(!inner);
+            return Ok(Annotated::not(inner));
         }
         self.parse_postfix()
     }
 
-    fn parse_postfix(&mut self) -> Result<TimeLineOp, ParseError> {
-        let expr = self.parse_primary()?;
+    fn parse_postfix(&mut self) -> Result<Annotated, ParseError> {
+        let mut expr = self.parse_primary()?;
+        if self.at_describe() && self.describe_then_compare() {
+            while self.at_describe() {
+                expr = expr.with_caption(self.parse_describe_call()?);
+            }
+        }
         let compare_op = match self.peek() {
             Token::EqualEqual => CompareOp::EqualTo,
             Token::Greater => CompareOp::GreaterThan,
@@ -172,10 +242,28 @@ impl Parser {
         };
         self.advance();
         let value = self.parse_value()?;
-        Ok(TimeLineOp::compare(compare_op, expr, value))
+        Ok(Annotated::compare(compare_op, expr, value))
     }
 
-    fn parse_primary(&mut self) -> Result<TimeLineOp, ParseError> {
+    fn parse_describe_call(&mut self) -> Result<String, ParseError> {
+        self.expect(Token::Dot)?;
+        match self.peek() {
+            Token::Ident(name) if name == "describe" => self.advance(),
+            other => {
+                return Err(self.error(format!("expected 'describe', found '{other}'")));
+            }
+        }
+        self.expect(Token::LParen)?;
+        let caption = match self.peek() {
+            Token::StringLit(s) => s.clone(),
+            other => return Err(self.error(format!("expected string, found '{other}'"))),
+        };
+        self.advance();
+        self.expect(Token::RParen)?;
+        Ok(caption)
+    }
+
+    fn parse_primary(&mut self) -> Result<Annotated, ParseError> {
         match self.peek() {
             Token::LParen => {
                 self.advance();
@@ -188,14 +276,14 @@ impl Parser {
                 self.expect(Token::LParen)?;
                 let column = self.parse_column_name()?;
                 self.expect(Token::RParen)?;
-                Ok(TimeLineOp::TlLatestEventToState(column))
+                Ok(Annotated::leaf(TimeLineOp::TlLatestEventToState(column)))
             }
             Token::HasExisted => {
                 self.advance();
                 self.expect(Token::LParen)?;
                 let predicate = self.parse_predicate()?;
                 self.expect(Token::RParen)?;
-                Ok(TimeLineOp::TlHasExisted(predicate))
+                Ok(Annotated::leaf(TimeLineOp::TlHasExisted(predicate)))
             }
             Token::HasExistedWithin => {
                 self.advance();
@@ -204,21 +292,24 @@ impl Parser {
                 self.expect(Token::Comma)?;
                 let within = self.parse_duration()?;
                 self.expect(Token::RParen)?;
-                Ok(TimeLineOp::TlHasExistedWithin { predicate, within })
+                Ok(Annotated::leaf(TimeLineOp::TlHasExistedWithin {
+                    predicate,
+                    within,
+                }))
             }
             Token::DurationWhere => {
                 self.advance();
                 self.expect(Token::LParen)?;
                 let inner = self.parse_expr()?;
                 self.expect(Token::RParen)?;
-                Ok(TimeLineOp::duration_where(inner))
+                Ok(Annotated::duration_where(inner))
             }
             Token::DurationInCurState => {
                 self.advance();
                 self.expect(Token::LParen)?;
                 let inner = self.parse_expr()?;
                 self.expect(Token::RParen)?;
-                Ok(TimeLineOp::duration_in_cur_state(inner))
+                Ok(Annotated::duration_in_cur_state(inner))
             }
             other => Err(self.error(format!("unexpected token '{other}'"))),
         }
@@ -323,5 +414,135 @@ impl Parser {
         };
         self.advance();
         Ok(function)
+    }
+}
+
+/// Parse-time tree that carries `.describe` captions without putting them
+/// on `TimeLineOp` (captions never become agents).
+struct Annotated {
+    caption: Option<String>,
+    kind: AnnotatedKind,
+}
+
+enum AnnotatedKind {
+    Leaf(TimeLineOp),
+    Compare {
+        op: CompareOp,
+        timeline: Box<Annotated>,
+        value: EventValue,
+    },
+    And {
+        left: Box<Annotated>,
+        right: Box<Annotated>,
+    },
+    Or {
+        left: Box<Annotated>,
+        right: Box<Annotated>,
+    },
+    Not(Box<Annotated>),
+    DurationWhere(Box<Annotated>),
+    DurationInCurState(Box<Annotated>),
+}
+
+impl Annotated {
+    fn leaf(op: TimeLineOp) -> Self {
+        Annotated {
+            caption: None,
+            kind: AnnotatedKind::Leaf(op),
+        }
+    }
+
+    fn compare(op: CompareOp, timeline: Annotated, value: EventValue) -> Self {
+        Annotated {
+            caption: None,
+            kind: AnnotatedKind::Compare {
+                op,
+                timeline: Box::new(timeline),
+                value,
+            },
+        }
+    }
+
+    fn and(left: Annotated, right: Annotated) -> Self {
+        Annotated {
+            caption: None,
+            kind: AnnotatedKind::And {
+                left: Box::new(left),
+                right: Box::new(right),
+            },
+        }
+    }
+
+    fn or(left: Annotated, right: Annotated) -> Self {
+        Annotated {
+            caption: None,
+            kind: AnnotatedKind::Or {
+                left: Box::new(left),
+                right: Box::new(right),
+            },
+        }
+    }
+
+    fn not(inner: Annotated) -> Self {
+        Annotated {
+            caption: None,
+            kind: AnnotatedKind::Not(Box::new(inner)),
+        }
+    }
+
+    fn duration_where(inner: Annotated) -> Self {
+        Annotated {
+            caption: None,
+            kind: AnnotatedKind::DurationWhere(Box::new(inner)),
+        }
+    }
+
+    fn duration_in_cur_state(inner: Annotated) -> Self {
+        Annotated {
+            caption: None,
+            kind: AnnotatedKind::DurationInCurState(Box::new(inner)),
+        }
+    }
+
+    fn with_caption(mut self, caption: String) -> Self {
+        if !caption.is_empty() {
+            self.caption = Some(caption);
+        }
+        self
+    }
+
+    fn flatten(self) -> (TimeLineOp, BTreeMap<NodeNumber, String>) {
+        let mut captions = BTreeMap::new();
+        let op = self.into_op(&mut captions, &mut 1);
+        (op, captions)
+    }
+
+    fn into_op(self, captions: &mut BTreeMap<NodeNumber, String>, next: &mut u64) -> TimeLineOp {
+        let number = NodeNumber(*next);
+        *next = next.saturating_add(1);
+        if let Some(caption) = self.caption {
+            captions.insert(number, caption);
+        }
+        match self.kind {
+            AnnotatedKind::Leaf(op) => op,
+            AnnotatedKind::Compare {
+                op,
+                timeline,
+                value,
+            } => TimeLineOp::compare(op, timeline.into_op(captions, next), value),
+            AnnotatedKind::And { left, right } => {
+                TimeLineOp::and(left.into_op(captions, next), right.into_op(captions, next))
+            }
+            AnnotatedKind::Or { left, right } => {
+                TimeLineOp::or(left.into_op(captions, next), right.into_op(captions, next))
+            }
+            AnnotatedKind::Not(inner) => !inner.into_op(captions, next),
+            AnnotatedKind::DurationWhere(inner) => {
+                TimeLineOp::duration_where(inner.into_op(captions, next))
+            }
+            AnnotatedKind::DurationInCurState(inner) => {
+                TimeLineOp::duration_in_cur_state(inner.into_op(captions, next))
+            }
+        }
     }
 }

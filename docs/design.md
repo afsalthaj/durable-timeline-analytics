@@ -27,9 +27,7 @@ Watch the talk from Afsal at [LambdaConf 2024 (Estes Park, Colorado)](https://ww
 
 ![Computation streaming](../images/stream.png)
 
-### Aggregation Results
-
-![Aggregation results](../images/aggregate.png)
+![Player state timelines](../images/live.png)
 
 ## Timeline Query DSL
 
@@ -61,6 +59,12 @@ duration_where(
   && !has_existed_within(playerStateChange == "seek", 5)
   && latest_event_to_state(playerStateChange) == "buffer"
 ) | aggregate(group_by(cdn), count, sum, avg)
+```
+
+Any sub-expression can take `.describe("…")`. The caption is display-only — it does not create an agent — and is what the dashboard shows for that node. Without it, the graph falls back to the default gloss.
+
+```javascript
+has_existed(playerStateChange == "play").describe("has the user ever played")
 ```
 
 

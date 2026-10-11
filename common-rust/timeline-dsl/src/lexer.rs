@@ -41,6 +41,7 @@ pub enum Token {
     LParen,
     RParen,
     Comma,
+    Dot,
 
     Eof,
 }
@@ -79,6 +80,7 @@ impl fmt::Display for Token {
             Token::LParen => write!(f, "("),
             Token::RParen => write!(f, ")"),
             Token::Comma => write!(f, ","),
+            Token::Dot => write!(f, "."),
             Token::Eof => write!(f, "EOF"),
         }
     }
@@ -165,6 +167,13 @@ impl<'a> Lexer<'a> {
                 self.advance();
                 Ok(Spanned {
                     token: Token::Comma,
+                    offset,
+                })
+            }
+            b'.' => {
+                self.advance();
+                Ok(Spanned {
+                    token: Token::Dot,
                     offset,
                 })
             }

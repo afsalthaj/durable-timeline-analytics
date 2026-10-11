@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
-use common_lib::{AggregationConfig, AggregationFunction, EventColumnName};
+use common_lib::{AggregationConfig, AggregationFunction, EventColumnName, NodeNumber};
 
 use crate::parser::{parse, ParseError};
 
@@ -355,5 +355,112 @@ fn error_reports_offset_of_offending_token() -> TestResult {
     let err = parse_error("has_existed(x == )")?;
     assert_eq!(err.offset, 17);
     assert!(err.message.contains("expected value"));
+    Ok(())
+}
+
+#[test]
+fn describe_on_leaf_does_not_change_the_operation() -> TestResult {
+    let parsed =
+        parse(r#"has_existed(status == "active").describe("has the user ever been active")"#)?;
+    assert_eq!(parsed.op.to_string(), "TlHasExisted(status == active)");
+    assert_eq!(
+        parsed.captions.get(&NodeNumber(1)).map(String::as_str),
+        Some("has the user ever been active")
+    );
+    Ok(())
+}
+
+#[test]
+fn describe_after_compare_labels_the_comparison() -> TestResult {
+    let parsed =
+        parse(r#"latest_event_to_state(status) == "buffer".describe("player is buffering")"#)?;
+    assert_eq!(
+        parsed.op.to_string(),
+        "EqualTo(TlLatestEventToState(status), buffer)"
+    );
+    assert_eq!(
+        parsed.captions.get(&NodeNumber(1)).map(String::as_str),
+        Some("player is buffering")
+    );
+    assert!(parsed.captions.get(&NodeNumber(2)).is_none());
+    Ok(())
+}
+
+#[test]
+fn describe_on_primary_before_compare_labels_the_leaf() -> TestResult {
+    let parsed = parse(r#"latest_event_to_state(status).describe("player state") == "buffer""#)?;
+    assert_eq!(
+        parsed.captions.get(&NodeNumber(2)).map(String::as_str),
+        Some("player state")
+    );
+    assert!(parsed.captions.get(&NodeNumber(1)).is_none());
+    Ok(())
+}
+
+#[test]
+fn describe_after_negation_labels_the_not() -> TestResult {
+    let parsed = parse(r#"!has_existed_within(status == "seek", 5).describe("no recent seek")"#)?;
+    assert_eq!(
+        parsed.op.to_string(),
+        "Not(TlHasExistedWithin(status == seek, 5))"
+    );
+    assert_eq!(
+        parsed.captions.get(&NodeNumber(1)).map(String::as_str),
+        Some("no recent seek")
+    );
+    Ok(())
+}
+
+#[test]
+fn describe_on_grouped_and() -> TestResult {
+    let parsed =
+        parse(r#"(has_existed(a == 1) && has_existed(b == 2)).describe("both happened")"#)?;
+    assert_eq!(
+        parsed.captions.get(&NodeNumber(1)).map(String::as_str),
+        Some("both happened")
+    );
+    Ok(())
+}
+
+#[test]
+fn last_describe_wins() -> TestResult {
+    let parsed = parse(r#"has_existed(x == 1).describe("first").describe("second")"#)?;
+    assert_eq!(
+        parsed.captions.get(&NodeNumber(1)).map(String::as_str),
+        Some("second")
+    );
+    Ok(())
+}
+
+#[test]
+fn describe_does_not_shift_agent_numbers() -> TestResult {
+    let plain =
+        parse(r#"duration_where(has_existed(x == 1) && latest_event_to_state(s) == "buffer")"#)?;
+    let labeled = parse(
+        r#"duration_where(
+            has_existed(x == 1).describe("seen x")
+            && (latest_event_to_state(s) == "buffer").describe("buffering")
+        ).describe("how long")"#,
+    )?;
+    assert_eq!(plain.op, labeled.op);
+    assert_eq!(
+        labeled.captions.get(&NodeNumber(1)).map(String::as_str),
+        Some("how long")
+    );
+    assert_eq!(
+        labeled.captions.get(&NodeNumber(3)).map(String::as_str),
+        Some("seen x")
+    );
+    assert_eq!(
+        labeled.captions.get(&NodeNumber(4)).map(String::as_str),
+        Some("buffering")
+    );
+    Ok(())
+}
+
+#[test]
+fn error_describe_needs_a_string() -> TestResult {
+    let err = parse_error(r#"has_existed(x == 1).describe(1)"#)?;
+    assert!(err.message.contains("expected string"));
     Ok(())
 }

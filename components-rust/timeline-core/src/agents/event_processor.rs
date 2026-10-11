@@ -122,11 +122,11 @@ impl EventProcessor for EventProcessorImpl {
             .ok_or(TimelineError::NotInitialized)?
         {
             LeafOperation::LatestEventToState(_) => Ok(to_state_point(
-                self.latest_event_state.get_state_at(t1),
+                self.latest_event_state.state_holding_at(t1),
                 EventValue::clone,
             )),
             LeafOperation::HasExisted(_) | LeafOperation::HasExistedWithin { .. } => Ok(
-                to_state_point(self.has_existed_state.get_state_at(t1), |b| {
+                to_state_point(self.has_existed_state.state_holding_at(t1), |b| {
                     EventValue::BoolValue(*b)
                 }),
             ),

@@ -77,6 +77,19 @@ impl<T: Clone + PartialEq> StateDynamicsTimeLine<T> {
         self.points.range(..t).next_back().map(|(_, v)| v)
     }
 
+    /// The segment whose interval `[t1, t2)` contains `t`.
+    ///
+    /// [`get_state_at`] is the exclusive predecessor — the state *before* an
+    /// event at `t`. A point-in-time query wants the state that *holds at* `t`,
+    /// including a segment that starts on `t`.
+    pub fn state_holding_at(&self, t: u64) -> Option<&StateDynamicsTimeLinePoint<T>> {
+        self.points
+            .range(..=t)
+            .next_back()
+            .map(|(_, point)| point)
+            .filter(|point| point.contains(t))
+    }
+
     pub fn boundary(&self, t: u64) -> Option<u64> {
         let previous_point = self.points.range(..t).next_back();
 
@@ -834,6 +847,19 @@ mod tests {
     //
     //     assert_eq!(result, expected);
     // }
+
+    #[test]
+    fn state_holding_at_includes_a_segment_that_starts_on_t() {
+        let mut timeline = StateDynamicsTimeLine::default();
+        timeline.add_state_dynamic_info(1, "init");
+        timeline.add_state_dynamic_info(5, "play");
+
+        assert_eq!(timeline.get_state_at(1).map(|p| p.value), None);
+        assert_eq!(timeline.state_holding_at(1).map(|p| p.value), Some("init"));
+        assert_eq!(timeline.state_holding_at(4).map(|p| p.value), Some("init"));
+        assert_eq!(timeline.state_holding_at(5).map(|p| p.value), Some("play"));
+        assert_eq!(timeline.state_holding_at(0).map(|p| p.value), None);
+    }
 
     #[test]
     fn test_negatable() {
