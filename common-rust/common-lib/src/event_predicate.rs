@@ -7,15 +7,7 @@ use crate::event::{Event, EventColumnName, EventValue};
 
 /// A condition evaluated against a single event.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "golem",
-    derive(
-        golem_rust::Schema,
-        golem_rust::IntoWire,
-        golem_rust::FromWire,
-        golem_rust::WireSchema
-    )
-)]
+#[cfg_attr(feature = "golem", derive(golem_rust::Schema))]
 pub enum EventPredicate {
     Equals {
         column: EventColumnName,

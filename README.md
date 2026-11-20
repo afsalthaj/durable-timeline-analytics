@@ -22,7 +22,7 @@ Paper: [TimeLine Analytics (CIDR 2023)](https://www.cidrdb.org/cidr2023/papers/p
 cargo make demo
 ```
 
-Docker, Rust ≥ 1.94 (`wasm32-wasip2`), and [Golem CLI 1.6+](https://learn.golem.cloud). That's it.
+Docker, Rust ≥ 1.94 (`wasm32-wasip2`), and [Golem CLI 1.6.3+](https://github.com/golemcloud/golem/releases/tag/v1.6.3). That's it.
 
 It starts Golem and Kafka, deploys CIRR across three CDNs, feeds playback events, and opens the dashboard at http://localhost:3000 (or the next free port). Then try:
 
