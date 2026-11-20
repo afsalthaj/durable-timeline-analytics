@@ -156,7 +156,7 @@ impl<T: Clone + PartialEq> StateDynamicsTimeLine<T> {
 
             // the new event falls on the right side of the existing time line
             (Some((left_t1, left_t2, left_val)), None) => {
-                if left_val == value && left_t2.map_or(false, |t2| t2 < new_time) {
+                if left_val == value && left_t2.is_some_and(|t2| t2 < new_time) {
                     self.points.insert(
                         left_t1,
                         StateDynamicsTimeLinePoint {
@@ -166,7 +166,7 @@ impl<T: Clone + PartialEq> StateDynamicsTimeLine<T> {
                         },
                     );
                 } else if left_val != value {
-                    if left_t2.map_or(true, |t2| t2 > new_time) {
+                    if left_t2.is_none_or(|t2| t2 > new_time) {
                         self.points.insert(
                             left_t1,
                             StateDynamicsTimeLinePoint {
@@ -183,7 +183,7 @@ impl<T: Clone + PartialEq> StateDynamicsTimeLine<T> {
                                 value,
                             },
                         );
-                    } else if left_t2.map_or(true, |t2| t2 < new_time) {
+                    } else if left_t2.is_none_or(|t2| t2 < new_time) {
                         self.points.insert(
                             left_t1,
                             StateDynamicsTimeLinePoint {
@@ -406,19 +406,8 @@ impl<T: Debug + Clone + PartialOrd> StateDynamicsTimeLine<T> {
             }
         }
 
-        let mut self_iter = aligned_left.points.iter().peekable();
-        let mut other_iter = aligned_right.points.iter().peekable();
-
-        loop {
-            let self_point = match self_iter.next() {
-                Some(p) => p,
-                None => break,
-            };
-            let other_point = match other_iter.next() {
-                Some(p) => p,
-                None => break,
-            };
-
+        for (self_point, other_point) in aligned_left.points.iter().zip(aligned_right.points.iter())
+        {
             let Boundaries {
                 left: left_ex,
                 intersection,

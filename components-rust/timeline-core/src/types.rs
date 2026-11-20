@@ -2,10 +2,10 @@
 //! Types used only to wire agents together. Values returned to clients live in
 //! `common_lib::agent_api`.
 use common_lib::{AgentName, CompareOp, EventColumnName, EventPredicate, EventValue};
-use golem_rust::{FromWire, IntoWire, Schema, WireSchema};
+use golem_rust::Schema;
 
 /// Which leaf computation an event processor performs.
-#[derive(Clone, Debug, Schema, IntoWire, FromWire, WireSchema)]
+#[derive(Clone, Debug, Schema)]
 pub enum LeafOperation {
     LatestEventToState(EventColumnName),
     HasExisted(EventPredicate),
@@ -16,7 +16,7 @@ pub enum LeafOperation {
 }
 
 /// Which derived computation a timeline processor performs.
-#[derive(Clone, Debug, Schema, IntoWire, FromWire, WireSchema)]
+#[derive(Clone, Debug, Schema)]
 pub enum DerivedOperation {
     Compare { op: CompareOp, value: EventValue },
     Not,
@@ -27,21 +27,21 @@ pub enum DerivedOperation {
 }
 
 /// Which input of a derived node a child feeds. Unary nodes only use `Left`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Schema, IntoWire, FromWire, WireSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Schema)]
 pub enum ChildSlot {
     Left,
     Right,
 }
 
 /// Where an agent pushes its state changes.
-#[derive(Clone, Debug, PartialEq, Eq, Schema, IntoWire, FromWire, WireSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Schema)]
 pub struct ParentRef {
     pub agent_name: AgentName,
     pub slot: ChildSlot,
 }
 
 /// A state change pushed from a child agent to its parent.
-#[derive(Clone, Debug, Schema, IntoWire, FromWire, WireSchema)]
+#[derive(Clone, Debug, Schema)]
 pub struct ChildStateChange {
     pub slot: ChildSlot,
     pub time: u64,

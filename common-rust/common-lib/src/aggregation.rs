@@ -7,15 +7,7 @@ use crate::event::EventColumnName;
 
 /// A cross-session aggregation function.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "golem",
-    derive(
-        golem_rust::Schema,
-        golem_rust::IntoWire,
-        golem_rust::FromWire,
-        golem_rust::WireSchema
-    )
-)]
+#[cfg_attr(feature = "golem", derive(golem_rust::Schema))]
 pub enum AggregationFunction {
     Count,
     Sum,
@@ -39,15 +31,7 @@ impl Display for AggregationFunction {
 /// Aggregate a timeline's root value across sessions, grouped by the value of
 /// an event column (e.g. `cdn`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "golem",
-    derive(
-        golem_rust::Schema,
-        golem_rust::IntoWire,
-        golem_rust::FromWire,
-        golem_rust::WireSchema
-    )
-)]
+#[cfg_attr(feature = "golem", derive(golem_rust::Schema))]
 pub struct AggregationConfig {
     pub group_by_column: EventColumnName,
     pub functions: Vec<AggregationFunction>,

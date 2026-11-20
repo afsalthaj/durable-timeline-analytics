@@ -8,15 +8,7 @@ use crate::event_predicate::EventPredicate;
 
 /// How a timeline's state is compared against a constant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "golem",
-    derive(
-        golem_rust::Schema,
-        golem_rust::IntoWire,
-        golem_rust::FromWire,
-        golem_rust::WireSchema
-    )
-)]
+#[cfg_attr(feature = "golem", derive(golem_rust::Schema))]
 pub enum CompareOp {
     EqualTo,
     GreaterThan,
@@ -60,15 +52,7 @@ impl CompareOp {
 
 /// The recursive Timeline DSL expression.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "golem",
-    derive(
-        golem_rust::Schema,
-        golem_rust::IntoWire,
-        golem_rust::FromWire,
-        golem_rust::WireSchema
-    )
-)]
+#[cfg_attr(feature = "golem", derive(golem_rust::Schema))]
 pub enum TimeLineOp {
     Compare {
         op: CompareOp,

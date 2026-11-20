@@ -6,16 +6,7 @@ use serde::{Deserialize, Serialize};
 /// The name of a column in an event, e.g. `playerStateChange` or `cdn`.
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
-#[cfg_attr(
-    feature = "golem",
-    derive(
-        golem_rust::Schema,
-        golem_rust::IntoWire,
-        golem_rust::FromWire,
-        golem_rust::WireSchema
-    ),
-    schema(transparent)
-)]
+#[cfg_attr(feature = "golem", derive(golem_rust::Schema), schema(transparent))]
 pub struct EventColumnName(pub String);
 
 impl EventColumnName {
@@ -36,15 +27,7 @@ impl Display for EventColumnName {
 
 /// A scalar value carried by an event column, and the state held by timelines.
 #[derive(Clone, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "golem",
-    derive(
-        golem_rust::Schema,
-        golem_rust::IntoWire,
-        golem_rust::FromWire,
-        golem_rust::WireSchema
-    )
-)]
+#[cfg_attr(feature = "golem", derive(golem_rust::Schema))]
 pub enum EventValue {
     StringValue(String),
     IntValue(i64),
@@ -85,15 +68,7 @@ impl Display for EventValue {
 
 /// One column of an event together with its value.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "golem",
-    derive(
-        golem_rust::Schema,
-        golem_rust::IntoWire,
-        golem_rust::FromWire,
-        golem_rust::WireSchema
-    )
-)]
+#[cfg_attr(feature = "golem", derive(golem_rust::Schema))]
 pub struct EventField {
     pub column: EventColumnName,
     pub value: EventValue,
@@ -110,15 +85,7 @@ impl EventField {
 
 /// A timestamped event as ingested by leaf agents.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "golem",
-    derive(
-        golem_rust::Schema,
-        golem_rust::IntoWire,
-        golem_rust::FromWire,
-        golem_rust::WireSchema
-    )
-)]
+#[cfg_attr(feature = "golem", derive(golem_rust::Schema))]
 pub struct Event {
     pub time: u64,
     pub fields: Vec<EventField>,
