@@ -1,8 +1,7 @@
-name: Build
+name: Build and test
 
 on:
   push:
-    branches: [master]
   pull_request:
 
 env:
@@ -10,7 +9,7 @@ env:
   GOLEM_VERSION: "1.6.0-rc1"
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -30,6 +29,9 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Test
+        run: cargo test --workspace
 
       - name: Install Golem CLI
         run: |
