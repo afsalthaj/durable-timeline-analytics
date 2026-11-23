@@ -30,6 +30,9 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl-dev zlib1g-dev libcurl4-openssl-dev cmake
+
       - name: Test
         run: cargo test --workspace
 
