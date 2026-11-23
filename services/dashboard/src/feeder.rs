@@ -132,7 +132,7 @@ impl FeederManager {
                 }
             }
 
-            for leaf in leaves_for(&feed.routes, &session, &event) {
+            for leaf in leaves_for(&feed.metric, &feed.routes, &session, &event) {
                 if let Err(e) = self.add_event(&leaf, &event).await {
                     eprintln!("[feeder:{}] failed to send to {leaf}: {e}", feed.metric.0);
                 }
@@ -150,9 +150,10 @@ impl FeederManager {
         let session = session.clone();
         let timeline = feed.timeline.clone();
         let aggregation = feed.aggregation.clone();
+        let metric = common_lib::MetricName::new(feed.metric.0.clone());
         tokio::task::spawn_blocking(move || {
             client
-                .initialize_timeline(&session, &timeline, aggregation.as_ref())
+                .initialize_timeline(&session, &metric, &timeline, aggregation.as_ref())
                 .map(|_| ())
                 .map_err(|e| e.to_string())
         })
@@ -173,8 +174,14 @@ impl FeederManager {
 }
 
 /// The leaves of `session` that read at least one column of `event`, in a
-/// stable order and without duplicates.
-fn leaves_for(routes: &Routes, session: &SessionId, event: &Event) -> Vec<AgentName> {
+/// stable order and without duplicates. Names include the metric so two
+/// metrics on one session do not share agents.
+fn leaves_for(
+    metric: &MetricName,
+    routes: &Routes,
+    session: &SessionId,
+    event: &Event,
+) -> Vec<AgentName> {
     let suffixes: BTreeSet<&str> = event
         .fields
         .iter()
@@ -184,7 +191,7 @@ fn leaves_for(routes: &Routes, session: &SessionId, event: &Event) -> Vec<AgentN
         .collect();
     suffixes
         .into_iter()
-        .map(|suffix| AgentName::new(format!("{session}-{suffix}")))
+        .map(|suffix| AgentName::new(format!("{session}-{}-{suffix}", metric.0)))
         .collect()
 }
 
@@ -217,10 +224,15 @@ mod tests {
             ],
         };
         assert_eq!(
-            leaves_for(&routes, &SessionId::new("s"), &event),
+            leaves_for(
+                &MetricName("cirr".into()),
+                &routes,
+                &SessionId::new("s"),
+                &event
+            ),
             vec![
-                AgentName::new("s-has-existed-4"),
-                AgentName::new("s-latest-event-to-state-8"),
+                AgentName::new("s-cirr-has-existed-4"),
+                AgentName::new("s-cirr-latest-event-to-state-8"),
             ]
         );
     }

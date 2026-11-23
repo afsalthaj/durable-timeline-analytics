@@ -4,7 +4,8 @@
 //! Run: `cargo make aggregation`
 
 use common_lib::{
-    AgentName, AggregationConfig, AggregationFunction, CompareOp, EventColumnName, TimeLineOp,
+    AgentName, AggregationConfig, AggregationFunction, CompareOp, EventColumnName, MetricName,
+    TimeLineOp,
 };
 use integration_harness::fixtures::{column, event, latest, string};
 use integration_harness::harness::{self, TestResult};
@@ -35,7 +36,8 @@ fn multi_session_aggregation() -> TestResult {
 
     for name in ["agg-sess-1", "agg-sess-2"] {
         let session = harness::unique_session(name);
-        let init = client.initialize_timeline(&session, &timeline, Some(&aggregation))?;
+        let metric = MetricName::new("buffering");
+        let init = client.initialize_timeline(&session, &metric, &timeline, Some(&aggregation))?;
         for leaf in &init.leaf_agents {
             for (time, state) in [(100, "init"), (200, "buffer")] {
                 client.add_event(
@@ -49,7 +51,11 @@ fn multi_session_aggregation() -> TestResult {
         }
     }
 
-    let aggregator = AgentName::for_aggregator(&aggregation.group_by_column, &string(&cdn));
+    let aggregator = AgentName::for_aggregator(
+        &MetricName::new("buffering"),
+        &aggregation.group_by_column,
+        &string(&cdn),
+    );
     let result = client.get_aggregation_result(&aggregator)?;
     assert_eq!(result.count, 2);
     assert_eq!(result.sum, 2.0);

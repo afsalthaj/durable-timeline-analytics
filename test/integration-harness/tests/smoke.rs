@@ -3,7 +3,7 @@
 //!
 //! Run: `cargo make smoke`
 
-use common_lib::{AgentName, InitializeResult};
+use common_lib::{AgentName, InitializeResult, MetricName};
 use integration_harness::fixtures::{column, event, latest, string};
 use integration_harness::harness::{self, TestResult};
 
@@ -15,8 +15,9 @@ fn single_leaf() -> TestResult {
     let client = harness::setup()?;
     let session = harness::unique_session("smoke-leaf");
 
-    let init = client.initialize_timeline(&session, &latest("playerStateChange"), None)?;
-    let leaf = AgentName::new(format!("{session}-latest-event-to-state-1"));
+    let metric = MetricName::new("player");
+    let init = client.initialize_timeline(&session, &metric, &latest("playerStateChange"), None)?;
+    let leaf = AgentName::new(format!("{session}-player-latest-event-to-state-1"));
     assert_eq!(
         init,
         InitializeResult {
@@ -42,7 +43,8 @@ fn state_transitions() -> TestResult {
     let client = harness::setup()?;
     let session = harness::unique_session("smoke-transitions");
 
-    let init = client.initialize_timeline(&session, &latest("playerStateChange"), None)?;
+    let metric = MetricName::new("player");
+    let init = client.initialize_timeline(&session, &metric, &latest("playerStateChange"), None)?;
     let leaf = init.root_agent;
 
     for (time, state) in [(10, "init"), (20, "buffer"), (30, "play")] {

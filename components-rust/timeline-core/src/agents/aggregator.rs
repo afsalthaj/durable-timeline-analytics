@@ -1,72 +1,59 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 use golem_rust::{agent_definition, agent_implementation};
 
-use common_lib::{AggregationFunction, AggregationResult};
+use common_lib::{AgentName, AggregationResult};
 
-/// Cross-session accumulator. One Aggregator per (column, value) pair, e.g.
-/// `aggregator-cdn-akamai`, created lazily by root TimelineProcessors.
+use crate::compute::SessionAggregates;
+use crate::types::SessionReport;
+
+/// Cross-session aggregator. One Aggregator per metric and group value, e.g.
+/// `aggregator-cirr-cdn-akamai`, created lazily when a root first reports.
 ///
-/// Session `sess-42` (cdn = "akamai") reports a CIRR delta of 3.0 →
-/// `Aggregator("aggregator-cdn-akamai").on_delta(3.0)`. Session `sess-99`
-/// (also akamai) reports 1.5 to the same agent. Querying it returns e.g.
-/// `{ count: 5000, sum: 12000.0, avg: 2.4 }`.
+/// Each root reports its session's latest value: fixed, or rising while a
+/// duration is accumulating. Results are computed at query time, so
+/// `sess-42` buffering since t=100 contributes 50 to `sum` at t=150.
 #[agent_definition]
 pub trait Aggregator {
     fn new(name: String) -> Self;
 
-    /// Set which aggregation functions to compute.
-    fn initialize_aggregator(&mut self, functions: Vec<AggregationFunction>);
+    /// Record a session's latest value, replacing what it reported before.
+    fn report(&mut self, report: SessionReport);
 
-    /// Receive a change in one session's value.
-    fn on_delta(&mut self, delta: f64);
+    /// Forget a session, e.g. because it moved to another group.
+    fn remove_session(&mut self, session: AgentName);
 
-    /// Register a new session contributing to this aggregator.
-    fn register_session(&mut self);
-
-    /// Query accumulated metrics across all sessions for this group.
+    /// Metrics across all sessions as of the latest reported event time.
     fn get_aggregation_result(&self) -> AggregationResult;
+
+    /// Metrics across all sessions at event time `time`.
+    fn get_aggregation_result_at(&self, time: u64) -> AggregationResult;
 }
 
 struct AggregatorImpl {
-    functions: Vec<AggregationFunction>,
-    count: u64,
-    sum: f64,
+    sessions: SessionAggregates,
 }
 
 #[agent_implementation]
 impl Aggregator for AggregatorImpl {
     fn new(_name: String) -> Self {
         Self {
-            functions: Vec::new(),
-            count: 0,
-            sum: 0.0,
+            sessions: SessionAggregates::default(),
         }
     }
 
-    fn initialize_aggregator(&mut self, functions: Vec<AggregationFunction>) {
-        self.functions = functions;
+    fn report(&mut self, report: SessionReport) {
+        self.sessions.report(report);
     }
 
-    fn on_delta(&mut self, delta: f64) {
-        self.sum += delta;
-    }
-
-    fn register_session(&mut self) {
-        self.count += 1;
+    fn remove_session(&mut self, session: AgentName) {
+        self.sessions.remove(&session);
     }
 
     fn get_aggregation_result(&self) -> AggregationResult {
-        let avg = if self.count > 0 {
-            self.sum / self.count as f64
-        } else {
-            0.0
-        };
-        AggregationResult {
-            count: self.count,
-            sum: self.sum,
-            avg,
-            min: None,
-            max: None,
-        }
+        self.sessions.result()
+    }
+
+    fn get_aggregation_result_at(&self, time: u64) -> AggregationResult {
+        self.sessions.result_at(time)
     }
 }
