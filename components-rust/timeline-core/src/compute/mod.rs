@@ -2,6 +2,8 @@
 //! Timeline computations performed by the agents, free of any Golem RPC so
 //! they can be unit-tested natively.
 mod aggregate;
+#[cfg(test)]
+mod cascade;
 mod derived;
 mod leaf;
 

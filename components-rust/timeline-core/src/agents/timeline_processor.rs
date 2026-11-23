@@ -89,16 +89,27 @@ impl TimelineProcessor for TimelineProcessorImpl {
             return;
         };
         let time = change.time;
-        let Some(output) = state.apply(ChildUpdate {
+        let outputs = state.apply(ChildUpdate {
             slot: change.slot,
             time,
             value: change.value,
-        }) else {
+        });
+        if outputs.is_empty() {
             return;
-        };
-
+        }
+        // A child change can move a later boundary (a seek window expiring
+        // after buffering has already started). Each of those times is pushed.
+        let report_time = outputs.last().map(|output| output.time).unwrap_or(time);
         let group_by_value = change.group_by_value.as_ref();
-        notify_parent(self.parent.as_ref(), time, output, group_by_value).await;
+        for output in outputs {
+            notify_parent(
+                self.parent.as_ref(),
+                output.time,
+                output.value,
+                group_by_value,
+            )
+            .await;
+        }
 
         let Some(target) = self.aggregation.as_ref() else {
             return;
@@ -114,7 +125,7 @@ impl TimelineProcessor for TimelineProcessorImpl {
             &mut self.aggregator_link,
             RootUpdate {
                 session: &self.name,
-                time,
+                time: report_time,
                 value,
                 group_by_value,
             },
