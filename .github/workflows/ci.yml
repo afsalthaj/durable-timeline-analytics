@@ -6,7 +6,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  GOLEM_VERSION: "1.6.0-rc1"
+  GOLEM_VERSION: "1.6.3"
 
 jobs:
   build-and-test:

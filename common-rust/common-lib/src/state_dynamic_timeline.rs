@@ -329,19 +329,8 @@ impl<T: Debug + Clone + PartialOrd> StateDynamicsTimeLine<T> {
             }
         }
 
-        let mut self_iter = aligned_left.points.iter().peekable();
-        let mut other_iter = aligned_right.points.iter().peekable();
-
-        loop {
-            let self_point = match self_iter.next() {
-                Some(p) => p,
-                None => break,
-            };
-            let other_point = match other_iter.next() {
-                Some(p) => p,
-                None => break,
-            };
-
+        for (self_point, other_point) in aligned_left.points.iter().zip(aligned_right.points.iter())
+        {
             let Boundaries {
                 left: left_ex,
                 intersection,

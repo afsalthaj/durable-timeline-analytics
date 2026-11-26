@@ -382,7 +382,7 @@ fn describe_after_compare_labels_the_comparison() -> TestResult {
         parsed.captions.get(&NodeNumber(1)).map(String::as_str),
         Some("player is buffering")
     );
-    assert!(parsed.captions.get(&NodeNumber(2)).is_none());
+    assert!(!parsed.captions.contains_key(&NodeNumber(2)));
     Ok(())
 }
 
@@ -393,7 +393,7 @@ fn describe_on_primary_before_compare_labels_the_leaf() -> TestResult {
         parsed.captions.get(&NodeNumber(2)).map(String::as_str),
         Some("player state")
     );
-    assert!(parsed.captions.get(&NodeNumber(1)).is_none());
+    assert!(!parsed.captions.contains_key(&NodeNumber(1)));
     Ok(())
 }
 

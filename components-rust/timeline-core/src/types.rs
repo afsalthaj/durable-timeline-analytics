@@ -5,10 +5,10 @@ use common_lib::{
     AgentName, AggregationConfig, CompareOp, EventColumnName, EventPredicate, EventValue,
     MetricName,
 };
-use golem_rust::{FromWire, IntoWire, Schema, WireSchema};
+use golem_rust::Schema;
 
 /// Which leaf computation an event processor performs.
-#[derive(Clone, Debug, PartialEq, Schema, IntoWire, FromWire, WireSchema)]
+#[derive(Clone, Debug, PartialEq, Schema)]
 pub enum LeafOperation {
     LatestEventToState(EventColumnName),
     HasExisted(EventPredicate),
@@ -19,7 +19,7 @@ pub enum LeafOperation {
 }
 
 /// Which derived computation a timeline processor performs.
-#[derive(Clone, Debug, PartialEq, Schema, IntoWire, FromWire, WireSchema)]
+#[derive(Clone, Debug, PartialEq, Schema)]
 pub enum DerivedOperation {
     Compare { op: CompareOp, value: EventValue },
     Not,
@@ -30,14 +30,14 @@ pub enum DerivedOperation {
 }
 
 /// Which input of a derived node a child feeds. Unary nodes only use `Left`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Schema, IntoWire, FromWire, WireSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Schema)]
 pub enum ChildSlot {
     Left,
     Right,
 }
 
 /// Where an agent pushes its state changes.
-#[derive(Clone, Debug, PartialEq, Eq, Schema, IntoWire, FromWire, WireSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Schema)]
 pub struct ParentRef {
     pub agent_name: AgentName,
     pub slot: ChildSlot,
@@ -45,14 +45,14 @@ pub struct ParentRef {
 
 /// Where a root node reports its value: the aggregators of `metric`,
 /// one per value of `config.group_by_column`.
-#[derive(Clone, Debug, PartialEq, Schema, IntoWire, FromWire, WireSchema)]
+#[derive(Clone, Debug, PartialEq, Schema)]
 pub struct AggregationTarget {
     pub metric: MetricName,
     pub config: AggregationConfig,
 }
 
 /// One session's contribution to an aggregate, as a function of time.
-#[derive(Clone, Copy, Debug, PartialEq, Schema, IntoWire, FromWire, WireSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Schema)]
 pub enum SessionValue {
     /// Holds at `value`.
     Fixed { value: f64 },
@@ -71,7 +71,7 @@ impl SessionValue {
 }
 
 /// A root node's report of its session's current value to an aggregator.
-#[derive(Clone, Debug, PartialEq, Schema, IntoWire, FromWire, WireSchema)]
+#[derive(Clone, Debug, PartialEq, Schema)]
 pub struct SessionReport {
     /// The reporting root agent; identifies the session within the aggregator.
     pub session: AgentName,
@@ -81,7 +81,7 @@ pub struct SessionReport {
 }
 
 /// A state change pushed from a child agent to its parent.
-#[derive(Clone, Debug, Schema, IntoWire, FromWire, WireSchema)]
+#[derive(Clone, Debug, Schema)]
 pub struct ChildStateChange {
     pub slot: ChildSlot,
     pub time: u64,
