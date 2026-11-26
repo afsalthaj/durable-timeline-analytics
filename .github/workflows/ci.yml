@@ -1,8 +1,7 @@
-name: Build
+name: Build and test
 
 on:
   push:
-    branches: [master]
   pull_request:
 
 env:
@@ -10,7 +9,7 @@ env:
   GOLEM_VERSION: "1.6.3"
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -30,6 +29,12 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl-dev zlib1g-dev libcurl4-openssl-dev cmake
+
+      - name: Test
+        run: cargo test --workspace
 
       - name: Install Golem CLI
         run: |
