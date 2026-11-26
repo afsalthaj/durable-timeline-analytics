@@ -158,7 +158,7 @@ has_existed(playerStateChange == "play") && !has_existed(error == "fatal")
 
 ## Quick Start — CIRR Demo
 
-Run the full CIRR pipeline end-to-end with a single command. Requires Docker (for Kafka), Rust ≥ 1.94 with the `wasm32-wasip2` target, and [Golem CLI 1.6+](https://learn.golem.cloud).
+Run the full CIRR pipeline end-to-end with a single command. Requires Docker (for Kafka), Rust ≥ 1.94 with the `wasm32-wasip2` target, and [Golem CLI 1.6.3+](https://github.com/golemcloud/golem/releases/tag/v1.6.3).
 
 ```shell
 cargo make demo

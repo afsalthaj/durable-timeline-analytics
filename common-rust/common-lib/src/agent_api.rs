@@ -32,16 +32,7 @@ impl Display for SessionId {
 /// Name of a Golem agent, e.g. `sess-42-has-existed-4`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-#[cfg_attr(
-    feature = "golem",
-    derive(
-        golem_rust::Schema,
-        golem_rust::IntoWire,
-        golem_rust::FromWire,
-        golem_rust::WireSchema
-    ),
-    schema(transparent)
-)]
+#[cfg_attr(feature = "golem", derive(golem_rust::Schema), schema(transparent))]
 pub struct AgentName(pub String);
 
 impl AgentName {
@@ -73,15 +64,7 @@ impl Display for AgentName {
 /// The state of a timeline over the interval `[t1, t2)`; `t2 = None` means
 /// the state holds into the future.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "golem",
-    derive(
-        golem_rust::Schema,
-        golem_rust::IntoWire,
-        golem_rust::FromWire,
-        golem_rust::WireSchema
-    )
-)]
+#[cfg_attr(feature = "golem", derive(golem_rust::Schema))]
 pub struct StatePoint {
     pub t1: u64,
     pub t2: Option<u64>,
@@ -89,15 +72,7 @@ pub struct StatePoint {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "golem",
-    derive(
-        golem_rust::Schema,
-        golem_rust::IntoWire,
-        golem_rust::FromWire,
-        golem_rust::WireSchema
-    )
-)]
+#[cfg_attr(feature = "golem", derive(golem_rust::Schema))]
 pub enum TimelineError {
     NotInitialized,
 }
@@ -115,15 +90,7 @@ impl std::error::Error for TimelineError {}
 /// Returned by the driver: the root agent and every leaf agent, so a feeder
 /// knows where to send events without walking the expression.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "golem",
-    derive(
-        golem_rust::Schema,
-        golem_rust::IntoWire,
-        golem_rust::FromWire,
-        golem_rust::WireSchema
-    )
-)]
+#[cfg_attr(feature = "golem", derive(golem_rust::Schema))]
 pub struct InitializeResult {
     pub root_agent: AgentName,
     pub leaf_agents: Vec<AgentName>,
@@ -131,15 +98,7 @@ pub struct InitializeResult {
 
 /// Aggregated metrics across all sessions of one group.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "golem",
-    derive(
-        golem_rust::Schema,
-        golem_rust::IntoWire,
-        golem_rust::FromWire,
-        golem_rust::WireSchema
-    )
-)]
+#[cfg_attr(feature = "golem", derive(golem_rust::Schema))]
 pub struct AggregationResult {
     pub count: u64,
     pub sum: f64,
