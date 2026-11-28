@@ -6,6 +6,7 @@
 
 use std::time::Duration;
 
+use common_lib::MetricName;
 use event_generator::last_player_state;
 use integration_harness::fixtures::latest;
 use integration_harness::harness::{self, TestResult};
@@ -24,7 +25,8 @@ fn kafka_event_pipeline() -> TestResult {
 
     let session = harness::unique_session("kafka-pipe");
     let topic = format!("timeline-{session}");
-    let init = client.initialize_timeline(&session, &latest("playerStateChange"), None)?;
+    let metric = MetricName::new("player");
+    let init = client.initialize_timeline(&session, &metric, &latest("playerStateChange"), None)?;
 
     let events = event_generator::generate_cirr_session_events_n(session.as_str(), "akamai", 10);
     let last = last_player_state(&events).ok_or("no playerStateChange event generated")?;

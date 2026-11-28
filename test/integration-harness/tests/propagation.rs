@@ -3,13 +3,13 @@
 //!
 //! Run: `cargo make propagation`
 
-use common_lib::{AgentName, Event, EventValue, SessionId, TimeLineOp};
+use common_lib::{AgentName, Event, EventValue, MetricName, SessionId, TimeLineOp};
 use integration_harness::fixtures::{cirr, column, event, has_existed};
 use integration_harness::harness::{self, TestResult};
 use timeline_client::TimelineClient;
 
-fn node(session: &SessionId, suffix: &str) -> AgentName {
-    AgentName::new(format!("{session}-{suffix}"))
+fn node(session: &SessionId, metric: &str, suffix: &str) -> AgentName {
+    AgentName::new(format!("{session}-{metric}-{suffix}"))
 }
 
 fn send(client: &TimelineClient, leaves: &[AgentName], event: &Event) -> TestResult {
@@ -40,14 +40,15 @@ fn boolean_logic() -> TestResult {
         !has_existed("status", "error"),
     );
 
-    let init = client.initialize_timeline(&session, &timeline, None)?;
-    let root = node(&session, "and-1");
+    let metric = MetricName::new("engaged");
+    let init = client.initialize_timeline(&session, &metric, &timeline, None)?;
+    let root = node(&session, "engaged", "and-1");
     assert_eq!(init.root_agent, root);
     assert_eq!(
         init.leaf_agents,
         vec![
-            node(&session, "has-existed-2"),
-            node(&session, "has-existed-4")
+            node(&session, "engaged", "has-existed-2"),
+            node(&session, "engaged", "has-existed-4")
         ]
     );
 
@@ -91,15 +92,16 @@ fn cirr_duration() -> TestResult {
     let client = harness::setup()?;
     let session = harness::unique_session("prop-cirr");
 
-    let init = client.initialize_timeline(&session, &cirr(), None)?;
-    let root = node(&session, "duration-where-1");
+    let metric = MetricName::new("cirr");
+    let init = client.initialize_timeline(&session, &metric, &cirr(), None)?;
+    let root = node(&session, "cirr", "duration-where-1");
     assert_eq!(init.root_agent, root);
     assert_eq!(
         init.leaf_agents,
         vec![
-            node(&session, "has-existed-4"),
-            node(&session, "has-existed-within-6"),
-            node(&session, "latest-event-to-state-8"),
+            node(&session, "cirr", "has-existed-4"),
+            node(&session, "cirr", "has-existed-within-6"),
+            node(&session, "cirr", "latest-event-to-state-8"),
         ]
     );
 

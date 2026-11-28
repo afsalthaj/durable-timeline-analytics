@@ -18,7 +18,7 @@ pub struct MetricName(pub String);
 pub struct DslText(pub String);
 
 /// The agent name suffix, e.g. "has-existed-4".
-/// The full agent name is `{session-id}-{suffix}`.
+/// The full agent name is `{session-id}-{metric}-{suffix}`.
 #[derive(Clone, Debug, Serialize, Hash, Eq, PartialEq)]
 pub struct AgentSuffix(pub String);
 
