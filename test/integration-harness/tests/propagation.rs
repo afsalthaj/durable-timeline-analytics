@@ -126,5 +126,10 @@ fn cirr_duration() -> TestResult {
         root_value(&client, &root, 400)?,
         Some(EventValue::IntValue(100))
     );
+    // The buffer window is still 50 at t=250, not the total of 100.
+    assert_eq!(
+        root_value(&client, &root, 250)?,
+        Some(EventValue::IntValue(50))
+    );
     Ok(())
 }
